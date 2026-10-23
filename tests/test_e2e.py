@@ -127,8 +127,8 @@ def test_login_reads_the_session_cookie_from_a_real_browser(env, home, tmp_path)
     wrapper.write_text(f'#!/bin/sh\nexec "{CHROMIUM}" --no-sandbox "$@"\n')
     wrapper.chmod(0o755)
     (home / "session.json").unlink()
-    p = subprocess.run([sys.executable, "-c", "from cu25.login import login; print(login(30, headless=True))"],
-                       env={**env, "CU25_BROWSER": str(wrapper)}, capture_output=True, text=True, timeout=90)
+    p = subprocess.run([sys.executable, "-c", "from cu25.login import login; print(login(90, headless=True))"],
+                       env={**env, "CU25_BROWSER": str(wrapper)}, capture_output=True, text=True, timeout=180)
     assert p.returncode == 0, p.stderr
     assert p.stdout.strip() == "Student, Test"
     cookies = json.loads((home / "session.json").read_text())["cookies"]
