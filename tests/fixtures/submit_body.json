@@ -1,0 +1,166 @@
+{
+ "events": {
+  "event": {
+   "state": 1,
+   "event_id": "561543",
+   "status": "new",
+   "profile": [
+    {
+     "status": "new",
+     "profile_id": "636747",
+     "rec_type_id": 0,
+     "prof_use": 1,
+     "reservation": [
+      {
+       "status": "new",
+       "reservation_state": 1,
+       "reservation_start_dt": "2026-10-25T14:00:00",
+       "reservation_end_dt": "2026-10-25T15:00:00",
+       "event_start_dt": "2026-10-25T14:00:00",
+       "event_end_dt": "2026-10-25T15:00:00",
+       "pre_event_dt": "2026-10-25T14:00:00",
+       "post_event_dt": "2026-10-25T15:00:00",
+       "rsrv_comments": "",
+       "reservation_id": 9482714,
+       "space_reservation": [
+        {
+         "status": "new",
+         "space_id": 165,
+         "layout_id": 23,
+         "share": "F",
+         "space_instructions": ""
+        }
+       ]
+      }
+     ],
+     "init_start_dt": "2026-10-25T14:00:00",
+     "init_end_dt": "2026-10-25T15:00:00",
+     "profile_code": "W1 SU 20261025T235900",
+     "expected_count": 20
+    }
+   ],
+   "event_name": "Generative AI at Cornell - NME",
+   "event_text": [
+    {
+     "status": "new",
+     "text_type_id": 1,
+     "text_type_name": "Description",
+     "text": "<p>New member education for Generative AI at Cornell new members!</p>"
+    }
+   ],
+   "start_date": "2026-10-25T14:00:00",
+   "end_date": "2026-10-25T15:00:00",
+   "event_type_id": 16,
+   "event_type_name": "Meeting / Info Session",
+   "organization": [
+    {
+     "status": "new",
+     "primary": "T",
+     "organization_id": 12499,
+     "organization_name": "Generative AI at Cornell-STDNT ORG"
+    }
+   ],
+   "custom_attribute": [
+    {
+     "status": "new",
+     "attribute_value": "Ithaca Campus",
+     "attribute_type": "S",
+     "attribute_id": 249,
+     "attribute_name": "Which Campus?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "[{\"item\":\"None of the Above\"}]",
+     "attribute_type": "S",
+     "attribute_id": 327,
+     "attribute_name": "Which of these will be part of your event? Select all that apply."
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 169,
+     "attribute_name": "Is alcohol going to be available at your event?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 176,
+     "attribute_name": "Is your event having food of any kind?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 239,
+     "attribute_name": "Is your event being held outdoors? (do not include tabling)"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 232,
+     "attribute_name": "Will your event include athletic/recreational activities? (e.g., dancing, yoga, throwing balls, running, jumping, etc.)"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 227,
+     "attribute_name": "Will your event feature a speaker, artist, or dignitary?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 193,
+     "attribute_name": "Does your event have parking or traffic needs?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "F",
+     "attribute_type": "B",
+     "attribute_id": 325,
+     "attribute_name": "Will your advisor be present at this event/activity?"
+    },
+    {
+     "status": "new",
+     "attribute_value": "Advisor Name",
+     "attribute_type": "S",
+     "attribute_id": 324,
+     "attribute_name": "Please enter your advisor\u2019s name and email address:"
+    },
+    {
+     "status": "new",
+     "attribute_value": "Test Student, netid@cornell.edu",
+     "attribute_type": "S",
+     "attribute_id": 188,
+     "attribute_name": "Enter name and phone number of the Sponsoring Org or Department staff/faculty/student that will be on-site."
+    }
+   ],
+   "role": [
+    {
+     "status": "new",
+     "role_id": -1,
+     "role_name": "Requestor",
+     "contact": {
+      "status": "new",
+      "contact_id": 25446,
+      "contact_name": "Student, Test"
+     }
+    },
+    {
+     "status": "new",
+     "role_id": -2,
+     "role_name": "Scheduler",
+     "contact": {
+      "status": "new",
+      "contact_id": 684,
+      "contact_name": "Scheduling Admin, CALS"
+     }
+    }
+   ]
+  }
+ }
+}
