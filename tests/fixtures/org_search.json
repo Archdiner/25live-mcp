@@ -1,0 +1,14 @@
+{
+ "searchCriteria": {
+  "cache_id": 11,
+  "item": [
+   {
+    "itemId": 12499,
+    "itemName": "Generative AI at Cornell-STDNT ORG",
+    "itemTypeId": 2
+   }
+  ],
+  "engine": "accl",
+  "page_count": 1
+ }
+}

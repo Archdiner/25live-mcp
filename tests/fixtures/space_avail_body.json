@@ -1,0 +1,44 @@
+{
+ "space_availability": {
+  "event": {
+   "event_id": "561543",
+   "profile": {
+    "profile_id": "636747"
+   }
+  },
+  "requirements": {
+   "space": [
+    {
+     "space_id": 164
+    },
+    {
+     "space_id": 165
+    },
+    {
+     "space_id": 976
+    },
+    {
+     "space_id": 977
+    },
+    {
+     "space_id": 980
+    },
+    {
+     "space_id": 981
+    },
+    {
+     "space_id": 982
+    }
+   ],
+   "hide_conflicts": "F",
+   "enable_override": "F",
+   "allow_sharing": "F"
+  },
+  "dates": [
+   {
+    "start_dt": "2026-10-25T14:00:00",
+    "end_dt": "2026-10-25T15:00:00"
+   }
+  ]
+ }
+}

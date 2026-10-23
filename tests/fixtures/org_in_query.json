@@ -1,0 +1,12 @@
+{
+ "list": {
+  "item": {
+   "rating_id": 4,
+   "name": "Generative AI at Cornell-STDNT ORG",
+   "rating_name": "4-STAR (default)",
+   "rating_events": 2,
+   "id": 12499
+  },
+  "engine": "accl"
+ }
+}
