@@ -40,9 +40,30 @@ class Request(Model):
     @field_validator("start", "end")
     @classmethod
     def _local(cls, v: datetime | None):
-        if v is not None and v.tzinfo is not None:
-            raise ValueError("use local Ithaca time without a UTC offset, e.g. 2026-10-29T17:00")
-        return v
+        return _local(v)
+
+
+def _local(v: datetime | None):
+    if v is not None and v.tzinfo is not None:
+        raise ValueError("use local Ithaca time without a UTC offset, e.g. 2026-10-29T17:00")
+    return v
+
+
+class LibraryRequest(Model):
+    """A library space booking (LibCal). Booked at once, under the user's own name and email."""
+    space_id: int | None = Field(None, description="Library space id, from `libspaces`.")
+    start: datetime | None = Field(None, description="Local Ithaca time, no offset: 2026-10-29T17:00")
+    end: datetime | None = Field(None, description="Same day as start.")
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = Field(None, description="The user's own address; the confirmation goes there.")
+    answers: dict[str, str | list[str]] = Field(default_factory=dict, description=(
+        "Extra questions on the library's booking form, by the field name `libbook` reports."))
+
+    @field_validator("start", "end")
+    @classmethod
+    def _local(cls, v: datetime | None):
+        return _local(v)
 
 
 # ---- outputs ----------------------------------------------------------------
@@ -173,6 +194,46 @@ class Doctor(Model):
     counts: dict[str, int]
 
 
+class LibrarySpace(Model):
+    space_id: int
+    name: str
+    library: str
+    category: str
+    capacity: int | None
+    url: str
+    free: bool | None = Field(description="Free for the whole time asked; null when no time was given.")
+    free_times: list[str] = Field(description="Free ranges that day, e.g. 14:00-16:30.")
+
+
+class LibrarySpaces(Model):
+    spaces: list[LibrarySpace]
+    total: int  # spaces matching, before `limit`
+
+
+class LibraryPreview(Model):
+    """What libbook will book, in plain words. Show it to the user before confirming."""
+    space: str
+    library: str
+    start: str
+    end: str
+    name: str
+    email: str
+    answers: dict[str, str | list[str]]
+
+
+class LibraryResult(Model):
+    status: Literal["not_ready", "preview", "changed", "booked"] = Field(description=(
+        "not_ready: see missing/problems. preview: nothing booked; show preview, then libbook with "
+        "confirm. changed: the preview is stale; show the new one. booked: done."))
+    booked: bool
+    missing: list[MissingField] = Field(default_factory=list, description="Ask the user these.")
+    problems: list[str] = Field(default_factory=list)
+    preview: LibraryPreview | None = None
+    confirm: str | None = Field(None, description="Pass back as --confirm to book exactly this.")
+    booking_id: str | None = None
+    messages: list[str] = Field(default_factory=list)
+
+
 class Error(Model):
     error: str
     error_type: Literal["session_expired", "invalid_input", "upstream", "error"]
@@ -182,5 +243,5 @@ class Error(Model):
 OUTPUTS: dict[str, type[Model]] = {
     "whoami": Whoami, "types": EventTypes, "orgs": Orgs, "rooms": Rooms,
     "check": CheckResult, "submit": SubmitResult, "copy": Copied, "status": Status,
-    "doctor": Doctor, "error": Error,
+    "doctor": Doctor, "libspaces": LibrarySpaces, "libbook": LibraryResult, "error": Error,
 }

@@ -236,7 +236,8 @@ def test_signed_out_login_json_is_expired_not_a_crash(home):
 
 def test_record_mode_saves_every_call(fake, real_request, tmp_path, monkeypatch):
     c, _ = fake
-    c._record = tmp_path / "rec"
+    monkeypatch.setenv("CU25_RECORD", str(tmp_path / "rec"))
+    c._record = C.Recorder()
     c.check(real_request)
     saved = sorted((tmp_path / "rec").glob("*.json"))
     assert saved and any("wizard_config" in f.name for f in saved)

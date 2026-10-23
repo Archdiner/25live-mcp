@@ -2,6 +2,8 @@
 
 A CLI and an MCP server over one client, so an agent can find rooms, work out what the event request form needs, ask the user for anything missing, and submit the request. 25Live calls are replays of what the 25Live Pro web app sends. Requests always land as **Tentative** until a human scheduler approves.
 
+It also books **library study spaces** (LibCal at spaces.library.cornell.edu: Olin, Uris, Catherwood, Mann, Carpenter Hall) with `libspaces` and `libbook`. Those are booked at once under the user's own name and email, with no login and no approval. The guide's first step is working out with the user which system fits: studying or a small group goes to the library, an organization's event goes to 25Live.
+
 ## Principles
 
 - **Nothing about the form is hard-coded.** Fields, questions, options, conditional rules, save blockers, allowed event types and date limits come from 25Live (cached for an hour, always refetched before a real submit). A required field or rule cu25 doesn't understand fails `check` loudly, never silently.
@@ -13,7 +15,7 @@ A CLI and an MCP server over one client, so an agent can find rooms, work out wh
 
 ## CLI or MCP?
 
-Both, over one `Client`; the CLI is primary. A shell agent gets composability (files, pipes, exit codes) and pays no context for tool schemas; a chat app with no shell needs MCP. Each face is under 100 lines, and `test_cli_and_mcp_expose_the_same_operations` fails if they drift.
+Both, over one `Client`; the CLI is primary. A shell agent gets composability (files, pipes, exit codes) and pays no context for tool schemas; a chat app with no shell needs MCP. Each face is a thin layer over the clients, and `test_cli_and_mcp_expose_the_same_operations` fails if they drift.
 
 ## Layout
 
@@ -24,11 +26,13 @@ Both, over one `Client`; the CLI is primary. A shell agent gets composability (f
 | `cu25/request.py` | `Schema` and `check()`: fields, answers, limits (pure, no network) |
 | `cu25/rules.py` | Evaluates 25Live's rule trees; declares the supported rule vocabulary (pure) |
 | `cu25/payload.py` | Builds and parses 25Live request bodies (pure) |
+| `cu25/libcal.py` | Reads LibCal pages and builds LibCal request bodies (pure) |
+| `cu25/library.py` | LibCal HTTP: space catalog (cached an hour), availability grid, the booking flow |
 | `cu25/guide.py` | The agent workflow (`cu25 guide`, MCP instructions, mirrored in the skill) |
 | `cu25/cli.py`, `cu25/mcp_server.py` | Thin faces over `Client` |
 | `cu25/login.py` | One-time login in the user's own browser (SSO + Duo), cookies read over DevTools |
-| `tests/fake25live.py` | A fake 25Live replaying captured responses, in-process or as a real HTTP server |
-| `tests/fixtures/` | Sanitized real responses from a captured session (Oct 2026) |
+| `tests/fake25live.py` | A fake 25Live and a fake LibCal replaying captured responses, in-process or as a real HTTP server |
+| `tests/fixtures/` | Sanitized real responses from captured sessions (Oct 2026); `lib_*` are LibCal |
 
 ## How it's verified
 
@@ -41,6 +45,7 @@ Both, over one `Client`; the CLI is primary. A shell agent gets composability (f
 | 25Live responses | Parsers run through `Client._parse`: a changed shape raises `UpstreamChanged` (`error_type: upstream`) instead of a stack trace. |
 | The live form today | `cu25 doctor` checks the session and that every required field, question type and rule in the live form is understood. Exit 2 if not. |
 | End to end | `tests/test_e2e.py` runs the installed `cu25` and `cu25-mcp` as separate processes against the fake over HTTP: rooms -> check -> answer -> check -> preview -> confirm -> status. Login drives a real headless Chromium against the fake and checks the saved cookie. |
+| Library booking | `test_preview_then_confirm_reproduces_the_real_browser_booking`: the add, times and book bodies equal what Chrome sent, field for field, in the browser's order. `test_a_shorter_booking_picks_the_end_time_as_the_live_run_did` pins the calls of a real booking made with cu25, including the end-time update. Preview sends only the grid and `booking/add` (nothing held). The fake LibCal rejects POSTs without a same-site Referer, as the real one does. |
 | Real traffic | `CU25_RECORD=dir cu25 ...` saves every request and response, to turn a live run into fixtures. |
 
 Exit codes: 0 ok, 1 error (`{"error", "error_type"}`), 2 needs attention (`check` not ready, `submit` status `not_ready` or `changed`, `doctor` not ok).
@@ -54,6 +59,10 @@ Exit codes: 0 ok, 1 error (`{"error", "error_type"}`), 2 needs attention (`check
 | `submit` preview | 5 | 2 |
 | `submit --confirm` | 18 | 5 (refetches the form on purpose, then the 5-step submit) |
 | `rooms` | 2 | 2 |
+| `libspaces`, catalog cold | 4 libraries -> ~19 pages + 1 grid per category | 4 |
+| `libspaces`, catalog warm (1 hour) | 1 grid per category | 1 |
+| `libbook` preview | 2-3 (grid, add, update if the end isn't LibCal's default) | 2-3 |
+| `libbook --confirm` | 4-5 (the above, then times, book) | 4-5 |
 
 CLI startup is about 180 ms, almost all of it pydantic; models use `defer_build`, so each command builds only the models it touches.
 
@@ -79,6 +88,23 @@ Base `https://25live.collegenet.com/25live/data/cornell/run/` (override with `CU
 | Org in saved search | `GET organizations.json?scope=list&query_id=Q&organization_id=O` (non-empty = yes) |
 | Event detail | `GET micro/event/{id}/detail.json?expand=T&include=all` |
 | **Submit, in order** | `GET sequence/id.json?itemName=events` -> `GET sequence/id.json?itemName=date_profile` -> `PUT event.json?prime` (presave, state -1) -> `POST micro/sequence/generate.json?element=reservation&quantity=1` -> `PUT rose/event.json?event_id=X&return_doc=T` (state 1) |
+
+## LibCal API (library spaces, verified from a HAR)
+
+Base `https://spaces.library.cornell.edu` (override with `CU25_LIBCAL`). No login and no cookies needed. Every POST needs a same-site `Referer` (else 403 "Invalid Referrer.") and sends `x-requested-with: XMLHttpRequest`. A refusal is HTTP 400 with a plain-text reason (e.g. "Invalid Checksum."), which `libbook` reports as a problem.
+
+| Purpose | Call |
+| --- | --- |
+| Libraries | `GET /spaces`: `<select name="lid">` options |
+| Categories of a library | `GET /spaces?lid=L`: `<select name="gid">` options (0 = Show All, skipped) |
+| Spaces in a category | `GET /spaces?lid=L&gid=G`: `resources.push({eid, title, capacity, grouping, ...})` in the page script |
+| Availability | `POST /spaces/availability/grid` `lid, gid, eid, seat=0, seatId=0, zone=0, start=day, end=day+1, pageIndex, pageSize=18`: slots of every space in the category; a slot with a `className` is taken, each has a `checksum` |
+| Pick the start | `POST /spaces/availability/booking/add` `add[eid,gid,lid,start,checksum], lid, gid, start, end`: `bookings[0]` with the end times allowed (`options`, `optionChecksums`, default `end`, `checksum`). Nothing held. |
+| Pick another end | same, with `update[id,checksum,end]` (the option's own checksum) + `bookings[0][...]`: the booking with that end and a new checksum. Verified in a live booking. |
+| Hold the times, get the form | `POST /ajax/space/times` `patron, patronHash, returnUrl, bookings[0][...], method=12`: `{html}` with the form (`session` id, `fname`, `lname`, `email`, any custom questions) and the email domain rule. Holds the slot a few minutes. |
+| **Book** | `POST /ajax/space/book` multipart: `session, fname, lname, email, [answers], bookings (JSON), returnUrl, pickupHolds, method`: `{bookId, html}` ("Booking Confirmed") |
+
+The form is read at confirm time, from `times`. Required fields cu25 doesn't know come back as `missing` items named `answers.<field>`, with their label and options, and nothing is booked. Seat bookings (e.g. Mann's Graduate Study Area) have no `resources` on their page and aren't listed.
 
 ## The form (Cornell config "Student Users - General Creation")
 
@@ -119,12 +145,14 @@ Answer encoding: yes/no -> `"T"`/`"F"`. Multi-select -> JSON string `[{"item":".
 4. **Additional time** (setup/teardown) and **repeating events** (only `rec_type_id: 0`). One HAR each.
 5. **Presave leftovers.** A failure after `PUT event.json?prime` leaves a "Presave: N" draft at state -1; the error says so. Find out whether 25Live cleans these up.
 6. "Organization / Location Not Found in List", file upload, edit/cancel.
+7. **Library: other forms and refusals.** A real booking through cu25 worked (Oct 23 2026: Catherwood 231A, 15:00-16:00 with a non-default end; the slot then showed taken and a second attempt was refused). Its calls are the `lib_*_3837` / `lib_bodies_live.json` fixtures. Still unseen: a category with custom form questions (Mann conference rooms?) and a refusal at `times`/`book`.
+8. **Library: cancel and seat bookings.** Cancelling is done from the confirmation email; seat-based categories aren't listed. One HAR each.
 
 ## Conventions
 
-- Keep `payload`, `rules` and `request` free of I/O. Network code lives only in `client.py` (and the browser handshake in `login.py`).
+- Keep `payload`, `rules`, `request` and `libcal` free of I/O. Network code lives only in `client.py` and `library.py` (and the browser handshake in `login.py`).
 - No new runtime dependency unless the standard library, httpx or pydantic can't do it in a few lines. Optional faces go behind extras.
 - Independent 25Live calls go through `parallel()`. Anything fetched twice in one command goes through `Client._get`.
-- Every new 25Live call gets a sanitized fixture, a route in `tests/fake25live.py` and a test. Every new output gets a model in `models.py` and an entry in `OUTPUTS`.
+- Every new 25Live or LibCal call gets a sanitized fixture, a route in `tests/fake25live.py` and a test. Every new output gets a model in `models.py` and an entry in `OUTPUTS`.
 - One test per behaviour, at the lowest layer that proves it. Don't re-prove at a higher layer what a lower one already pins down.
 - Strip NetIDs, names and emails from fixtures. Run `pyflakes cu25 tests` before committing: no unused code.

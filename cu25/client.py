@@ -69,6 +69,22 @@ def parallel(*fns):
         return [f.result() for f in [ex.submit(fn) for fn in fns]]
 
 
+class Recorder:
+    """CU25_RECORD=dir: save every request and response there as JSON, to make fixtures."""
+
+    def __init__(self):
+        self.dir = Path(os.environ["CU25_RECORD"]) if os.environ.get("CU25_RECORD") else None
+        self.n = itertools.count(len(list(self.dir.glob("*.json"))) if self.dir and self.dir.exists() else 0)
+
+    def __call__(self, method: str, path: str, query: str, body, r: httpx.Response):
+        if self.dir:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            name = f"{next(self.n):03d}_{method}_{path.strip('/').replace('/', '_')}"
+            (self.dir / name).with_suffix(".json").write_text(json.dumps(
+                {"method": method, "path": path, "query": query, "body": body,
+                 "status": r.status_code, "response": r.text}, indent=1))
+
+
 class Client:
     def __init__(self, home: Path = HOME, base: str = BASE):
         self.home, self.base = home, base.rstrip("/")
@@ -87,20 +103,13 @@ class Client:
             "referer": "https://25live.collegenet.com/pro/cornell",
         })
         self._memo: dict = {}
-        self._record = Path(os.environ["CU25_RECORD"]) if os.environ.get("CU25_RECORD") else None
-        self._recorded = itertools.count(len(list(self._record.glob("*.json"))) if self._record and
-                                         self._record.exists() else 0)
+        self._record = Recorder()
 
     # ---- plumbing -------------------------------------------------------
     def _call(self, method: str, path: str, query: str = "", body: dict | None = None) -> dict:
         url = f"{self.base}/{path}?{query + '&' if query else ''}caller=pro"
         r = self.http.request(method, url, content=json.dumps(body) if body is not None else None)
-        if self._record:
-            self._record.mkdir(parents=True, exist_ok=True)
-            n = next(self._recorded)
-            (self._record / f"{n:03d}_{method}_{path.replace('/', '_')}").with_suffix(".json").write_text(
-                json.dumps({"method": method, "path": path, "query": query, "body": body,
-                            "status": r.status_code, "response": r.text}, indent=1))
+        self._record(method, path, query, body, r)
         if r.status_code in (301, 302, 303, 401, 403) or "text/html" in r.headers.get("content-type", ""):
             raise SessionExpired("25Live session expired. Run: cu25 login")
         if r.status_code >= 400:
