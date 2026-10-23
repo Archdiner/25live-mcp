@@ -1,0 +1,54 @@
+{
+ "add": [
+  ["add[eid]", "3837"],
+  ["add[gid]", "1016"],
+  ["add[lid]", "527"],
+  ["add[start]", "2026-10-26 15:00"],
+  ["add[checksum]", "5c09712cfb3837eb7f76c4baaa67a165"],
+  ["lid", "527"],
+  ["gid", "1016"],
+  ["start", "2026-10-26"],
+  ["end", "2026-10-27"]
+ ],
+ "update": [
+  ["update[id]", "1"],
+  ["update[checksum]", "ef72bf5374b7dee859058633c7218a14"],
+  ["update[end]", "2026-10-26 16:00:00"],
+  ["lid", "527"],
+  ["gid", "1016"],
+  ["start", "2026-10-26"],
+  ["end", "2026-10-27"],
+  ["bookings[0][id]", "1"],
+  ["bookings[0][eid]", "3837"],
+  ["bookings[0][seat_id]", "0"],
+  ["bookings[0][gid]", "1016"],
+  ["bookings[0][lid]", "527"],
+  ["bookings[0][start]", "2026-10-26 15:00"],
+  ["bookings[0][end]", "2026-10-26 17:00"],
+  ["bookings[0][checksum]", "8a31251b1a5ca391bdc513a1d5cb3dd5"]
+ ],
+ "times": [
+  ["patron", ""],
+  ["patronHash", ""],
+  ["returnUrl", "/space/3837"],
+  ["bookings[0][id]", "1"],
+  ["bookings[0][eid]", "3837"],
+  ["bookings[0][seat_id]", "0"],
+  ["bookings[0][gid]", "1016"],
+  ["bookings[0][lid]", "527"],
+  ["bookings[0][start]", "2026-10-26 15:00"],
+  ["bookings[0][end]", "2026-10-26 16:00"],
+  ["bookings[0][checksum]", "e3619b750595357d7f6cda22bef8b957"],
+  ["method", "12"]
+ ],
+ "book": [
+  ["session", "101859910"],
+  ["fname", "Test"],
+  ["lname", "Student"],
+  ["email", "netid@cornell.edu"],
+  ["bookings", "[{\"id\":1,\"eid\":3837,\"seat_id\":0,\"gid\":1016,\"lid\":527,\"start\":\"2026-10-26 15:00\",\"end\":\"2026-10-26 16:00\",\"checksum\":\"e3619b750595357d7f6cda22bef8b957\"}]"],
+  ["returnUrl", "/space/3837"],
+  ["pickupHolds", ""],
+  ["method", "12"]
+ ]
+}

@@ -45,7 +45,7 @@ Both, over one `Client`; the CLI is primary. A shell agent gets composability (f
 | 25Live responses | Parsers run through `Client._parse`: a changed shape raises `UpstreamChanged` (`error_type: upstream`) instead of a stack trace. |
 | The live form today | `cu25 doctor` checks the session and that every required field, question type and rule in the live form is understood. Exit 2 if not. |
 | End to end | `tests/test_e2e.py` runs the installed `cu25` and `cu25-mcp` as separate processes against the fake over HTTP: rooms -> check -> answer -> check -> preview -> confirm -> status. Login drives a real headless Chromium against the fake and checks the saved cookie. |
-| Library booking | `test_preview_then_confirm_reproduces_the_real_browser_booking`: the add, times and book bodies equal what Chrome sent, field for field, in the browser's order. Preview sends only the grid and `booking/add` (nothing held). The fake LibCal rejects POSTs without a same-site Referer, as the real one does. |
+| Library booking | `test_preview_then_confirm_reproduces_the_real_browser_booking`: the add, times and book bodies equal what Chrome sent, field for field, in the browser's order. `test_a_shorter_booking_picks_the_end_time_as_the_live_run_did` pins the calls of a real booking made with cu25, including the end-time update. Preview sends only the grid and `booking/add` (nothing held). The fake LibCal rejects POSTs without a same-site Referer, as the real one does. |
 | Real traffic | `CU25_RECORD=dir cu25 ...` saves every request and response, to turn a live run into fixtures. |
 
 Exit codes: 0 ok, 1 error (`{"error", "error_type"}`), 2 needs attention (`check` not ready, `submit` status `not_ready` or `changed`, `doctor` not ok).
@@ -100,7 +100,7 @@ Base `https://spaces.library.cornell.edu` (override with `CU25_LIBCAL`). No logi
 | Spaces in a category | `GET /spaces?lid=L&gid=G`: `resources.push({eid, title, capacity, grouping, ...})` in the page script |
 | Availability | `POST /spaces/availability/grid` `lid, gid, eid, seat=0, seatId=0, zone=0, start=day, end=day+1, pageIndex, pageSize=18`: slots of every space in the category; a slot with a `className` is taken, each has a `checksum` |
 | Pick the start | `POST /spaces/availability/booking/add` `add[eid,gid,lid,start,checksum], lid, gid, start, end`: `bookings[0]` with the end times allowed (`options`, `optionChecksums`, default `end`, `checksum`). Nothing held. |
-| Pick another end | same, with `update[id,checksum,end]` + `bookings[0][...]`. Read from the page's JS; **not in a HAR yet**. |
+| Pick another end | same, with `update[id,checksum,end]` (the option's own checksum) + `bookings[0][...]`: the booking with that end and a new checksum. Verified in a live booking. |
 | Hold the times, get the form | `POST /ajax/space/times` `patron, patronHash, returnUrl, bookings[0][...], method=12`: `{html}` with the form (`session` id, `fname`, `lname`, `email`, any custom questions) and the email domain rule. Holds the slot a few minutes. |
 | **Book** | `POST /ajax/space/book` multipart: `session, fname, lname, email, [answers], bookings (JSON), returnUrl, pickupHolds, method`: `{bookId, html}` ("Booking Confirmed") |
 
@@ -145,7 +145,7 @@ Answer encoding: yes/no -> `"T"`/`"F"`. Multi-select -> JSON string `[{"item":".
 4. **Additional time** (setup/teardown) and **repeating events** (only `rec_type_id: 0`). One HAR each.
 5. **Presave leftovers.** A failure after `PUT event.json?prime` leaves a "Presave: N" draft at state -1; the error says so. Find out whether 25Live cleans these up.
 6. "Organization / Location Not Found in List", file upload, edit/cancel.
-7. **Library: first live booking.** Only the read-only half (`libspaces`) has run against real LibCal. Run `CU25_RECORD=~/cu25-rec cu25 libbook ... --confirm` once and turn the recording into fixtures. In particular, check the end-time `update` call (not in the HAR), a category with custom form questions (Mann conference rooms?), and what a refusal looks like at `times`/`book`.
+7. **Library: other forms and refusals.** A real booking through cu25 worked (Oct 23 2026: Catherwood 231A, 15:00-16:00 with a non-default end; the slot then showed taken and a second attempt was refused). Its calls are the `lib_*_3837` / `lib_bodies_live.json` fixtures. Still unseen: a category with custom form questions (Mann conference rooms?) and a refusal at `times`/`book`.
 8. **Library: cancel and seat bookings.** Cancelling is done from the confirmation email; seat-based categories aren't listed. One HAR each.
 
 ## Conventions

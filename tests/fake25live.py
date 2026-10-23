@@ -81,12 +81,9 @@ def libcal_route(method: str, path: str, q: dict, form: list, referer: str) -> t
     if path == "/spaces/availability/grid":
         return js(load(f"lib_grid_{f['gid']}.json"))
     if path == "/spaces/availability/booking/add":
-        out = load("lib_add.json")
-        if "update[end]" in f:  # picking another end time: not captured yet, shaped like the add
-            b = out["bookings"][0]
-            b["optionSelected"] = b["options"].index(f["update[end]"])
-            b["end"], b["checksum"] = f["update[end]"], f["update[checksum]"]
-        return js(out)
+        if "update[end]" in f:  # picking another end time (live run: 231A, 15:00 until 16:00)
+            return js(load("lib_update_3837.json"))
+        return js(load("lib_add_3837.json" if f["add[eid]"] == "3837" else "lib_add.json"))
     if path == "/ajax/space/times":
         return js(load("lib_times.json"))
     if path == "/ajax/space/book":

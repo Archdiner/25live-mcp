@@ -1,5 +1,4 @@
 """Library study spaces (LibCal) against the fake, through the same Library the CLI and MCP use."""
-import json
 
 import fake25live
 from fake25live import load
@@ -38,17 +37,18 @@ def test_preview_then_confirm_reproduces_the_real_browser_booking(library):
     assert [list(x) for x in sent["/ajax/space/book"]] == real["book"]
 
 
-def test_a_shorter_booking_picks_the_end_time_like_the_page(library):
+def test_a_shorter_booking_picks_the_end_time_as_the_live_run_did(library):
+    """A real booking made with cu25 (231A, 15:00-16:00, not LibCal's default end): same calls."""
     lib, calls = library
-    req = booking(end="2026-10-26T18:00")
+    req = booking(space_id=3837, start="2026-10-26T15:00", end="2026-10-26T16:00")
     out = lib.book(req, confirm=lib.book(req).confirm)
     assert out.status == "booked"
-    update = [dict(f) for p, f in posts(calls) if dict(f).get("update[end]")][-1]
-    add = load("lib_add.json")["bookings"][0]
-    assert update["update[end]"] == "2026-10-26 18:00:00"
-    assert update["update[checksum]"] == add["optionChecksums"][3]
-    book = dict(posts(calls)[-1][1])
-    assert json.loads(book["bookings"])[0]["end"] == "2026-10-26 18:00"
+    sent = posts(calls)[-5:]
+    assert [p for p, _ in sent] == ["/spaces/availability/grid"] + ["/spaces/availability/booking/add"] * 2 + [
+        "/ajax/space/times", "/ajax/space/book"]
+    real = load("lib_bodies_live.json")
+    real["book"][0] = ["session", "101859629"]  # the fake hands out the HAR's form session
+    assert [[list(x) for x in f] for _, f in sent[1:]] == [real["add"], real["update"], real["times"], real["book"]]
 
 
 def test_spaces_come_from_every_library_and_category_and_are_cached(library):
