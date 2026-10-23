@@ -23,7 +23,7 @@ from urllib.parse import quote, urlparse
 import httpx
 
 from . import payload as P
-from .models import (CheckResult, Copied, Doctor, EventType, Org, Preview, Request, Room,
+from .models import (CheckResult, Copied, Doctor, EventType, Org, Preview, Request, Room, Rooms,
                      Status, SubmitResult, Whoami)
 from .request import (FIELD_KEYS, QUESTION_TYPES, Schema, check, display_answer, encode_answer,
                       evaluate)
@@ -119,7 +119,7 @@ class Client:
         """Run a parser; a missing key means 25Live changed, so say that instead of crashing."""
         try:
             return fn(*args)
-        except (KeyError, IndexError, TypeError, StopIteration, ValueError) as e:
+        except (KeyError, IndexError, TypeError, AttributeError, StopIteration, ValueError) as e:
             raise UpstreamChanged(f"25Live's {what} response has an unexpected shape ({e!r}). "
                                   "Run with CU25_RECORD=dir to capture it.")
 
@@ -130,12 +130,15 @@ class Client:
     # ---- who / what -----------------------------------------------------
     def whoami(self) -> Whoami:
         def go():
-            login = self._call("GET", "login.json")["login_response"]["login"]
+            r = self._call("GET", "login.json")
+            if "login_response" not in r:  # signed out: 25Live answers with login_remote
+                raise SessionExpired("25Live session expired. Run: cu25 login")
+            login = r["login_response"]["login"]
             if login.get("success") != "T" or not login.get("username"):
                 raise SessionExpired("25Live session expired. Run: cu25 login")
             return Whoami(netid=login["username"], name=login["contact_name"],
                           contact_id=int(login["user_id"]), group=login.get("security_group_name"))
-        return self._get("whoami", go)
+        return self._get("whoami", lambda: self._parse("login", go))
 
     def event_types(self) -> list[EventType]:
         return [EventType(type_id=k, name=v) for k, v in self.schema().event_types.items()]
@@ -163,16 +166,22 @@ class Client:
 
     # ---- rooms ----------------------------------------------------------
     def search_spaces(self, start: datetime, end: datetime, name: str | None = None,
-                      min_capacity: int | None = None, page_size: int = 25) -> list[dict]:
-        q = (f"scope=extended&can_schedule=T&perm_start_dt={P.fmt_dt(start)}"
-             f"&perm_end_dt={P.fmt_dt(end)}&include=layouts&order=asc&sort=name"
-             f"&page=1&page_size={page_size}&paginate")
-        if min_capacity:
-            q += f"&min_default_capacity={min_capacity}"
-        if name:
-            q += f"&name={quote(name)}"
-        r = self._call("GET", "spaces.json", q)
-        return self._parse("room search", P.parse_spaces, r)
+                      min_capacity: int | None = None, page_size: int = 1000) -> list[dict]:
+        """Every matching room: 25Live pages these, and Cornell has ~900 schedulable spaces."""
+        found: list[dict] = []
+        for page in range(1, 51):
+            q = (f"scope=extended&can_schedule=T&perm_start_dt={P.fmt_dt(start)}"
+                 f"&perm_end_dt={P.fmt_dt(end)}&include=layouts&order=asc&sort=name"
+                 f"&page={page}&page_size={page_size}&paginate")
+            if min_capacity:
+                q += f"&min_default_capacity={min_capacity}"
+            if name:
+                q += f"&name={quote(name)}"
+            batch = self._parse("room search", P.parse_spaces, self._call("GET", "spaces.json", q))
+            found += batch
+            if len(batch) < page_size:
+                break
+        return found
 
     def availability(self, space_ids: list[int], start: datetime, end: datetime) -> dict[int, dict]:
         if not space_ids:
@@ -181,16 +190,17 @@ class Client:
         return self._parse("availability", P.parse_availability, resp)
 
     def rooms(self, start: datetime, end: datetime, name: str | None = None,
-              people: int | None = None) -> list[Room]:
-        """Rooms you may request at that time, free ones first."""
+              people: int | None = None, limit: int = 50) -> Rooms:
+        """Rooms you may request at that time, free ones first. `limit` 0 means all."""
         if end <= start:
             raise CU25Error("End time must be after start time.")
         found = self.search_spaces(start, end, name=name, min_capacity=people)
         avail = self.availability([r["space_id"] for r in found], start, end)
         out = [Room(**{k: v for k, v in r.items() if k != "layouts"},
-                    **avail.get(r["space_id"], {"free": False, "can_request": False}),
-                    fully_scheduled=not r["code"].endswith("**")) for r in found]
-        return sorted(out, key=lambda r: (not r.free, r.capacity or 0))
+                     **avail.get(r["space_id"], {"free": False, "can_request": False}),
+                     fully_scheduled=not r["code"].endswith("**")) for r in found]
+        out.sort(key=lambda r: (not r.free, r.capacity or 0))
+        return Rooms(rooms=out if limit == 0 else out[:limit], total=len(out))
 
     def space_info(self, space_id: int) -> dict:
         def go():

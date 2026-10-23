@@ -171,10 +171,32 @@ def test_not_ready_request_is_never_submitted(fake, real_request):
 
 def test_rooms_lists_free_first(fake):
     c, _ = fake
-    rooms = c.rooms(datetime(2026, 10, 25, 14), datetime(2026, 10, 25, 15), name="stimson")
-    assert rooms[0].free and not rooms[-1].free
-    assert {r.code: r.fully_scheduled for r in rooms}["STMG01"] is True
-    assert {r.code: r.fully_scheduled for r in rooms}["STM102**"] is False
+    out = c.rooms(datetime(2026, 10, 25, 14), datetime(2026, 10, 25, 15), name="stimson")
+    assert out.rooms[0].free and not out.rooms[-1].free
+    assert {r.code: r.fully_scheduled for r in out.rooms}["STMG01"] is True
+    assert {r.code: r.fully_scheduled for r in out.rooms}["STM102**"] is False
+
+
+def test_rooms_caps_the_list_but_reports_the_total(fake):
+    c, _ = fake
+    out = c.rooms(datetime(2026, 10, 25, 14), datetime(2026, 10, 25, 15), name="stimson", limit=1)
+    assert len(out.rooms) == 1 and out.total > 1
+
+
+def test_room_search_reads_past_the_first_page(home):
+    pages = []
+
+    def handle(req):
+        page, size = int(req.url.params["page"]), int(req.url.params["page_size"])
+        pages.append(page)
+        return httpx.Response(200, json={"spaces": {"space": [
+            {"space_id": page * 100 + i, "space_name": f"S{page}{i}", "formal_name": f"Room {page}-{i}"}
+            for i in range(size if page == 1 else 1)]}})
+
+    c = C.Client(home=home)
+    c.http = httpx.Client(transport=httpx.MockTransport(handle))
+    found = c.search_spaces(datetime(2026, 10, 29, 18), datetime(2026, 10, 29, 19), page_size=2)
+    assert pages == [1, 2] and len(found) == 3
 
 
 def test_form_definition_is_fetched_once_then_cached(fake, home, real_request):
@@ -200,6 +222,14 @@ def test_expired_session_is_clear(home):
     c = C.Client(home=home)
     c.http = httpx.Client(transport=httpx.MockTransport(
         lambda r: httpx.Response(302, headers={"location": "https://shibidp.cit.cornell.edu"})))
+    with pytest.raises(C.SessionExpired, match="cu25 login"):
+        c.whoami()
+
+
+def test_signed_out_login_json_is_expired_not_a_crash(home):
+    c = C.Client(home=home)
+    c.http = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json=load("login_logged_out.json"))))
     with pytest.raises(C.SessionExpired, match="cu25 login"):
         c.whoami()
 
