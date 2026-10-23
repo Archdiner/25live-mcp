@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 
 import anyio
 import pytest
@@ -112,3 +113,24 @@ def test_mcp_server_over_stdio(env):
                 bad = await s.call_tool("check", {"request": {**req, "headcount": 0}})
                 assert bad.is_error
     anyio.run(go)
+
+
+CHROMIUM = next((p for p in ["/opt/pw-browsers/chromium/chrome-linux/chrome",
+                             "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"]
+                 if os.path.exists(p)), shutil.which("chromium") or shutil.which("google-chrome"))
+
+
+@pytest.mark.skipif(not CHROMIUM, reason="no Chromium to drive")
+def test_login_reads_the_session_cookie_from_a_real_browser(env, home, tmp_path):
+    env, _ = env
+    wrapper = tmp_path / "chrome-wrapper"  # containers run as root, which needs --no-sandbox
+    wrapper.write_text(f'#!/bin/sh\nexec "{CHROMIUM}" --no-sandbox "$@"\n')
+    wrapper.chmod(0o755)
+    (home / "session.json").unlink()
+    p = subprocess.run([sys.executable, "-c", "from cu25.login import login; print(login(30, headless=True))"],
+                       env={**env, "CU25_BROWSER": str(wrapper)}, capture_output=True, text=True, timeout=90)
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.strip() == "Student, Test"
+    cookies = json.loads((home / "session.json").read_text())["cookies"]
+    assert {"name": "JSESSIONID", "value": "signed-in", "domain": "127.0.0.1", "path": "/"} in cookies
+    assert oct((home / "session.json").stat().st_mode)[-3:] == "600"

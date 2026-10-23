@@ -118,3 +118,20 @@ def test_documented_form_fields_match_the_code():
     agents = (ROOT / "AGENTS.md").read_text()
     for name in FIELD_KEYS:
         assert f"| {name} |" in agents, name
+
+
+def test_runtime_stays_lean():
+    import tomllib
+    meta = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert [d.split(">")[0] for d in meta["dependencies"]] == ["httpx", "pydantic"]
+    core = "".join((ROOT / "cu25" / f).read_text() for f in
+                   ("cli.py", "client.py", "models.py", "request.py", "rules.py", "payload.py", "login.py"))
+    assert "import mcp" not in core and "from mcp" not in core
+
+
+def test_no_unused_code():
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "-m", "pyflakes", "cu25", "tests"], cwd=ROOT,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

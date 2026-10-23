@@ -16,7 +16,7 @@ Answer = Union[bool, str, list[str]]
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", defer_build=True)
 
 
 # ---- input ------------------------------------------------------------------

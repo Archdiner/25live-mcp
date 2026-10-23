@@ -6,12 +6,15 @@ an error result whose text starts with the error type (e.g. "session_expired: ..
 """
 from __future__ import annotations
 
-from datetime import datetime
+import sys
 
-from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+try:
+    from mcp.server.mcpserver import MCPServer
+    from mcp.types import ToolAnnotations
+except ImportError:
+    sys.exit("cu25-mcp needs the MCP extra: pip install 'cu25[mcp]'")
 
-from .client import Client, CU25Error
+from .client import Client, CU25Error, parse_slot
 from .guide import GUIDE
 from .models import (CheckResult, Copied, Doctor, EventTypes, Orgs, Request, Rooms, Status,
                      SubmitResult, Whoami)
@@ -25,10 +28,6 @@ def _run(fn):
         return fn(Client())
     except CU25Error as e:
         raise RuntimeError(f"{e.error_type}: {e}") from None
-
-
-def _dt(day: str, hhmm: str) -> datetime:
-    return datetime.fromisoformat(f"{day}T{hhmm}")
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
@@ -59,7 +58,7 @@ def orgs(name: str) -> Orgs:
 @mcp.tool(annotations=READ)
 def rooms(date: str, start: str, end: str, people: int | None = None, name: str | None = None) -> Rooms:
     """Rooms the user may request at a time (YYYY-MM-DD, HH:MM 24h Ithaca time), free first."""
-    return _run(lambda c: Rooms(rooms=c.rooms(_dt(date, start), _dt(date, end), name=name, people=people)))
+    return _run(lambda c: Rooms(rooms=c.rooms(*parse_slot(date, start, end), name=name, people=people)))
 
 
 @mcp.tool(annotations=READ)

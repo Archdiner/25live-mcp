@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from functools import cached_property
 
 from .models import CheckResult, MissingField, MissingQuestion, Request
 from .rules import Context, Engine
@@ -52,6 +53,10 @@ class Schema:
     event_types: dict[int, str] = field(default_factory=dict)  # types this user may create
     min_date: date | None = None       # usergroup/wizardsecurity.json
     max_date: date | None = None
+
+    @cached_property
+    def engine(self) -> Engine:
+        return Engine(self.form_rules, self.validation_rules)
 
     def answer_type(self, qid: int) -> str:
         d = self.questions.get(qid, {})
@@ -120,7 +125,7 @@ def evaluate(req: Request, schema: Schema, ctx: Context):
             problems.append(f"Question {qid} ({schema.questions[qid]['itemName']}) {err}.")
         else:
             canon[qid] = value
-    result = Engine(schema.form_rules, schema.validation_rules).evaluate(canon, ctx, schema.root_questions)
+    result = schema.engine.evaluate(canon, ctx, schema.root_questions)
     return result, canon, problems
 
 
@@ -163,7 +168,7 @@ def check(req: Request, schema: Schema, ctx: Context) -> CheckResult:
     if result["requirements"] or result["resources"]:
         problems.append("These answers route the request to extra approvers, which cu25 can't "
                         "attach yet. Submit this one in the 25Live web form.")
-    unsupported = Engine(schema.form_rules, schema.validation_rules).unsupported_rules()
+    unsupported = schema.engine.unsupported_rules()
     warnings = [plain(a) for a in result["alerts"]]
     if unsupported:
         problems.append("The form has rules cu25 can't evaluate, so it can't be sure what's "

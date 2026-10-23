@@ -59,12 +59,21 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _go(self):
         u = urlparse(self.path)
+        if u.path.startswith("/pro/"):  # the 25Live app page: signing in sets the session cookie
+            self.send_response(200)
+            self.send_header("set-cookie", "JSESSIONID=signed-in; Path=/")
+            self.send_header("content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html>25Live</html>")
+            return
         path = u.path.split("/run/", 1)[-1]
         params = {k: v[0] for k, v in parse_qs(u.query, keep_blank_values=True).items()}
         n = int(self.headers.get("content-length") or 0)
         body = json.loads(self.rfile.read(n)) if n else None
         self.calls.append((self.command, path, params, body))
         out = route(self.command, path, params, body)
+        if path == "login.json" and "JSESSIONID=" not in (self.headers.get("cookie") or ""):
+            out = {"login_response": {"login": {"success": "F"}}}  # like 25Live: no cookie, no user
         data = json.dumps(out).encode() if out is not None else b"not found"
         self.send_response(200 if out is not None else 404)
         self.send_header("content-type", "application/json" if out is not None else "text/plain")

@@ -67,17 +67,17 @@ def _overlaps_hours(start: datetime, end: datetime, lo: float, hi: float) -> boo
     return False
 
 
-def _walk(node: dict):
+def walk(node: dict):
     yield node
     kids = node.get("children")
     for k in (kids.get("item") or []) if isinstance(kids, dict) else []:
-        yield from _walk(k)
+        yield from walk(k)
 
 
 def unsupported(rule: dict) -> list[str]:
     """What in this rule cu25 can't evaluate (empty = fully supported)."""
     out = []
-    for n in _walk(rule["item"]):
+    for n in walk(rule["item"]):
         if n.get("type") == "comp":
             if n["sourceItem"].get("itemTypeId") not in SOURCES:
                 out.append(f"source type {n['sourceItem'].get('itemTypeId')}")

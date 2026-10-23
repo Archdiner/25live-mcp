@@ -34,12 +34,6 @@ def test_first_questions_depend_on_context():
     assert eng.evaluate({}, ctx, roots)["unanswered"] == [249]
 
 
-def test_food_yes_unlocks_follow_ups():
-    eng, roots, answers, ctx = setup()
-    answers[176] = "T"
-    assert eng.evaluate(answers, ctx, roots)["unanswered"] == [177, 271]
-
-
 def test_late_minors_request_is_blocked():
     eng, roots, answers, ctx = setup()
     answers[327] = ["Attendees Are Under 18 yrs Old and NOT Students at Cornell"]

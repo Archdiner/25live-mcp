@@ -9,20 +9,11 @@ A CLI and an MCP server over one client, so an agent can find rooms, work out wh
 - **Nothing is sent without an explicit confirmation of exactly what will be sent.** `submit` without `--confirm` only previews and returns a code (a hash of the exact body). `submit --confirm CODE` refetches the live form, rebuilds the body and sends it only if the hash still matches.
 - **Every input and output is a pydantic model** (`cu25/models.py`). The CLI prints them, the MCP tools are typed with them, `cu25 schema` prints their JSON Schemas, and the tests validate every command's output against them.
 - No server, no stored passwords. It rides the user's own session cookie from `cu25 login`.
+- **Small and fast.** Runtime dependencies are httpx and pydantic only (~13 MB). MCP is an extra. Login drives the user's own browser over the DevTools protocol, with no automation library and no browser download. Independent 25Live calls run in parallel.
 
 ## CLI or MCP?
 
-Both, because they cost almost nothing on top of one client. The CLI is the primary interface.
-
-| | CLI (`cu25`) | MCP (`cu25-mcp`) |
-| --- | --- | --- |
-| Best for | Agents with a shell (coding agents, scripts, cron) | Chat apps without a shell (desktop chat clients) |
-| Discovery | `cu25 guide` and `skills/book-room/SKILL.md` | Server instructions and typed tool schemas |
-| Composability | Pipes, files, exit codes, `jq` | One tool call at a time |
-| Context cost | Only what the agent runs | All tool schemas loaded up front (~10 tools, small) |
-| Testing | Subprocess e2e | stdio e2e with a real MCP client |
-
-Each face is under 100 lines and calls the same `Client` methods. `test_cli_and_mcp_expose_the_same_operations` fails if they drift. A student-org officer who never opens a terminal is the reason to keep the MCP server; a coding agent should use the CLI.
+Both, over one `Client`; the CLI is primary. A shell agent gets composability (files, pipes, exit codes) and pays no context for tool schemas; a chat app with no shell needs MCP. Each face is under 100 lines, and `test_cli_and_mcp_expose_the_same_operations` fails if they drift.
 
 ## Layout
 
@@ -35,7 +26,7 @@ Each face is under 100 lines and calls the same `Client` methods. `test_cli_and_
 | `cu25/payload.py` | Builds and parses 25Live request bodies (pure) |
 | `cu25/guide.py` | The agent workflow (`cu25 guide`, MCP instructions, mirrored in the skill) |
 | `cu25/cli.py`, `cu25/mcp_server.py` | Thin faces over `Client` |
-| `cu25/login.py` | One-time Playwright login (SSO + Duo by the user) |
+| `cu25/login.py` | One-time login in the user's own browser (SSO + Duo), cookies read over DevTools |
 | `tests/fake25live.py` | A fake 25Live replaying captured responses, in-process or as a real HTTP server |
 | `tests/fixtures/` | Sanitized real responses from a captured session (Oct 2026) |
 
@@ -49,10 +40,22 @@ Each face is under 100 lines and calls the same `Client` methods. `test_cli_and_
 | Form logic | The engine derives exactly the 11 questions the real form showed, food = yes unlocks 177 and 271, lead-time blockers fire, every live rule is in the supported vocabulary. |
 | 25Live responses | Parsers run through `Client._parse`: a changed shape raises `UpstreamChanged` (`error_type: upstream`) instead of a stack trace. |
 | The live form today | `cu25 doctor` checks the session and that every required field, question type and rule in the live form is understood. Exit 2 if not. |
-| End to end | `tests/test_e2e.py` runs the installed `cu25` and `cu25-mcp` as separate processes against the fake over HTTP: rooms -> check -> answer -> check -> preview -> confirm -> status. |
+| End to end | `tests/test_e2e.py` runs the installed `cu25` and `cu25-mcp` as separate processes against the fake over HTTP: rooms -> check -> answer -> check -> preview -> confirm -> status. Login drives a real headless Chromium against the fake and checks the saved cookie. |
 | Real traffic | `CU25_RECORD=dir cu25 ...` saves every request and response, to turn a live run into fixtures. |
 
 Exit codes: 0 ok, 1 error (`{"error", "error_type"}`), 2 needs attention (`check` not ready, `submit` status `not_ready` or `changed`, `doctor` not ok).
+
+## Performance
+
+| Step | 25Live calls | Round-trip waves |
+| --- | --- | --- |
+| `check`, form cache cold | 11 | 3 (7 form parts in parallel, root questions, then org/room/availability in parallel) |
+| `check`, form cache warm (1 hour) | 3 | 1 |
+| `submit` preview | 5 | 2 |
+| `submit --confirm` | 18 | 5 (refetches the form on purpose, then the 5-step submit) |
+| `rooms` | 2 | 2 |
+
+CLI startup is about 180 ms, almost all of it pydantic; models use `defer_build`, so each command builds only the models it touches.
 
 ## 25Live API (verified from a HAR)
 
@@ -119,4 +122,9 @@ Answer encoding: yes/no -> `"T"`/`"F"`. Multi-select -> JSON string `[{"item":".
 
 ## Conventions
 
-Keep `payload`, `rules` and `request` free of I/O. Every new 25Live call gets a sanitized fixture, a route in `tests/fake25live.py` and a test. Every new output gets a model in `models.py` and an entry in `OUTPUTS`. Strip NetIDs, names and emails from fixtures.
+- Keep `payload`, `rules` and `request` free of I/O. Network code lives only in `client.py` (and the browser handshake in `login.py`).
+- No new runtime dependency unless the standard library, httpx or pydantic can't do it in a few lines. Optional faces go behind extras.
+- Independent 25Live calls go through `parallel()`. Anything fetched twice in one command goes through `Client._get`.
+- Every new 25Live call gets a sanitized fixture, a route in `tests/fake25live.py` and a test. Every new output gets a model in `models.py` and an entry in `OUTPUTS`.
+- One test per behaviour, at the lowest layer that proves it. Don't re-prove at a higher layer what a lower one already pins down.
+- Strip NetIDs, names and emails from fixtures. Run `pyflakes cu25 tests` before committing: no unused code.

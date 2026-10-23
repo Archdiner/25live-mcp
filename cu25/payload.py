@@ -32,54 +32,6 @@ def presave_body(event_id: int, now: datetime) -> dict:
     }}}
 
 
-def _contact_name(contacts: list[dict], contact_id: int) -> str:
-    for c in contacts:
-        if c["contactId"] == contact_id:
-            return f"{c['familyName']}, {c['firstName']}"
-    return ""
-
-
-def template_from_detail(detail: dict) -> dict:
-    """Flatten a micro/event/{id}/detail.json response into a reusable template."""
-    item = detail["content"]["data"]["items"][0]
-    info = detail["content"]["expandedInfo"]
-    attr_meta = {a["attributeId"]: a for a in info.get("attributes", [])}
-    org_id = item["organizations"]["primary"]
-    org = next(o for o in info["organizations"] if o["organizationId"] == org_id)
-    type_id = item["context"]["typeId"]
-    type_name = next(t["typeName"] for t in info["eventTypes"] if t["typeId"] == type_id)
-    prof = item["profiles"][0]
-    space = prof["reservations"][0]["spaces"][0]["requested"][0]
-    roles = {r["roleId"]: r["contactId"] for r in item["roles"]}
-    contacts = info.get("contacts", [])
-    desc = next((t["description"] for t in item.get("text", []) if "description" in t), "")
-    return {
-        "source_event_id": item["id"],
-        "event_name": item["name"],
-        "event_type_id": type_id,
-        "event_type_name": type_name,
-        "organization_id": org_id,
-        "organization_name": org["organizationName"],
-        "description": desc,
-        "expected_count": prof.get("expectedCount") or 0,
-        "space_id": space["spaceId"],
-        "layout_id": space["layoutId"],
-        "requestor_id": roles[-1],
-        "requestor_name": _contact_name(contacts, roles[-1]),
-        "scheduler_id": roles.get(-2),
-        "scheduler_name": _contact_name(contacts, roles[-2]) if -2 in roles else "",
-        "attributes": [
-            {
-                "attribute_id": a["attributeId"],
-                "attribute_value": a["value"],
-                "attribute_type": attr_meta[a["attributeId"]]["dataType"],
-                "attribute_name": attr_meta[a["attributeId"]]["attributeName"],
-            }
-            for a in item.get("attributes", [])
-        ],
-    }
-
-
 def _decode_answer(value: str, data_type: str):
     if data_type == "B":
         return value == "T"
@@ -92,20 +44,24 @@ def _decode_answer(value: str, data_type: str):
 
 
 def request_from_detail(detail: dict) -> dict:
-    """An existing event as an agent-facing request (dates left blank on purpose)."""
-    tpl = template_from_detail(detail)
+    """An existing event (micro/event/{id}/detail.json) as Request fields, dates left blank."""
+    item = detail["content"]["data"]["items"][0]
+    types = {a["attributeId"]: a["dataType"] for a in detail["content"]["expandedInfo"].get("attributes", [])}
+    prof = item["profiles"][0]
+    space = prof["reservations"][0]["spaces"][0]["requested"][0]
+    desc = next((t["description"] for t in item.get("text", []) if "description" in t), "")
     return {
-        "name": tpl["event_name"],
-        "type_id": tpl["event_type_id"],
-        "org_id": tpl["organization_id"],
-        "headcount": tpl["expected_count"],
+        "name": item["name"],
+        "type_id": item["context"]["typeId"],
+        "org_id": item["organizations"]["primary"],
+        "headcount": prof.get("expectedCount") or None,
         "start": None,
         "end": None,
-        "space_id": tpl["space_id"],
-        "layout_id": tpl["layout_id"],
-        "description": html.unescape(re.sub(r"<[^>]+>", "", tpl["description"])) or None,
-        "answers": {str(a["attribute_id"]): _decode_answer(a["attribute_value"], a["attribute_type"])
-                    for a in tpl["attributes"]},
+        "space_id": space["spaceId"],
+        "layout_id": space["layoutId"],
+        "description": html.unescape(re.sub(r"<[^>]+>", "", desc)) or None,
+        "answers": {str(a["attributeId"]): _decode_answer(a["value"], types[a["attributeId"]])
+                    for a in item.get("attributes", [])},
         "agree": False,
     }
 

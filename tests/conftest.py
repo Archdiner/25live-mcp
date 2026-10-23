@@ -15,7 +15,8 @@ from cu25.models import Request  # noqa: E402
 @pytest.fixture
 def home(tmp_path):
     (tmp_path / "session.json").write_text(json.dumps({"cookies": [
-        {"name": "JSESSIONID", "value": "x", "domain": "25live.collegenet.com", "path": "/"}]}))
+        {"name": "JSESSIONID", "value": "x", "domain": "25live.collegenet.com", "path": "/"},
+        {"name": "JSESSIONID", "value": "x", "domain": "127.0.0.1", "path": "/"}]}))  # e2e fake
     return tmp_path
 
 

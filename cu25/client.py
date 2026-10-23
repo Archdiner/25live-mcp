@@ -11,12 +11,14 @@ Environment:
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -25,7 +27,7 @@ from .models import (CheckResult, Copied, Doctor, EventType, Org, Preview, Reque
                      Status, SubmitResult, Whoami)
 from .request import (FIELD_KEYS, QUESTION_TYPES, Schema, check, display_answer, encode_answer,
                       evaluate)
-from .rules import Context, Engine
+from .rules import Context, walk
 
 HOME = Path(os.environ.get("CU25_HOME", Path.home() / ".cu25"))
 BASE = os.environ.get("CU25_BASE", "https://25live.collegenet.com/25live/data/cornell/run")
@@ -53,6 +55,20 @@ def _date(s: str | None) -> date | None:
     return date.fromisoformat(s[:10]) if s else None
 
 
+def parse_slot(day: str, start: str, end: str) -> tuple[datetime, datetime]:
+    """'2026-10-29', '17:00', '18:00' -> two naive local datetimes."""
+    try:
+        return datetime.fromisoformat(f"{day}T{start}"), datetime.fromisoformat(f"{day}T{end}")
+    except ValueError:
+        raise ValueError(f"expected YYYY-MM-DD HH:MM HH:MM, got {day!r} {start!r} {end!r}")
+
+
+def parallel(*fns):
+    """Run independent calls concurrently (httpx.Client is thread-safe); results in order."""
+    with ThreadPoolExecutor(len(fns)) as ex:
+        return [f.result() for f in [ex.submit(fn) for fn in fns]]
+
+
 class Client:
     def __init__(self, home: Path = HOME, base: str = BASE):
         self.home, self.base = home, base.rstrip("/")
@@ -60,9 +76,9 @@ class Client:
         if not state_file.exists():
             raise SessionExpired("Not logged in. Run: cu25 login")
         state = json.loads(state_file.read_text())
-        jar = httpx.Cookies()
+        host, jar = urlparse(self.base).hostname or "", httpx.Cookies()
         for c in state.get("cookies", []):
-            if "collegenet.com" in c.get("domain", ""):
+            if host.endswith(c.get("domain", "").lstrip(".") or "\0"):
                 jar.set(c["name"], c["value"], domain=c["domain"], path=c.get("path", "/"))
         self.http = httpx.Client(cookies=jar, timeout=30, follow_redirects=False, headers={
             "accept": "application/json, text/plain, */*",
@@ -72,6 +88,8 @@ class Client:
         })
         self._memo: dict = {}
         self._record = Path(os.environ["CU25_RECORD"]) if os.environ.get("CU25_RECORD") else None
+        self._recorded = itertools.count(len(list(self._record.glob("*.json"))) if self._record and
+                                         self._record.exists() else 0)
 
     # ---- plumbing -------------------------------------------------------
     def _call(self, method: str, path: str, query: str = "", body: dict | None = None) -> dict:
@@ -79,7 +97,7 @@ class Client:
         r = self.http.request(method, url, content=json.dumps(body) if body is not None else None)
         if self._record:
             self._record.mkdir(parents=True, exist_ok=True)
-            n = len(list(self._record.glob("*.json")))
+            n = next(self._recorded)
             (self._record / f"{n:03d}_{method}_{path.replace('/', '_')}").with_suffix(".json").write_text(
                 json.dumps({"method": method, "path": path, "query": query, "body": body,
                             "status": r.status_code, "response": r.text}, indent=1))
@@ -189,14 +207,15 @@ class Client:
             c = json.loads(cache.read_text())
             if c.get("base") == self.base and time.time() - c.get("fetched_at", 0) < FORM_CACHE_SECONDS:
                 return c
-        c = {"base": self.base, "fetched_at": time.time(), "roots": {},
-             "config": self._call("GET", "wizard/config.json", "mode=create"),
-             "security": self._call("GET", "usergroup/wizardsecurity.json"),
-             "rules": self._call("GET", "rule/trees.json", "category_id=form"),
-             "validation": self._call("GET", "rule/trees.json", "category_id=formValidation"),
-             "questions": self._call("GET", "search-criteria/customattributes.json", "itemTypeId=1&all_types=F"),
-             "options": self._call("GET", "custom/attribute/options.json"),
-             "types": self._call("GET", "search-criteria/event/types.json", "active=T&all_types=F&form_config=T")}
+        parts = {"config": ("wizard/config.json", "mode=create"),
+                 "security": ("usergroup/wizardsecurity.json", ""),
+                 "rules": ("rule/trees.json", "category_id=form"),
+                 "validation": ("rule/trees.json", "category_id=formValidation"),
+                 "questions": ("search-criteria/customattributes.json", "itemTypeId=1&all_types=F"),
+                 "options": ("custom/attribute/options.json", ""),
+                 "types": ("search-criteria/event/types.json", "active=T&all_types=F&form_config=T")}
+        got = parallel(*[lambda p=p, q=q: self._call("GET", p, q) for p, q in parts.values()])
+        c = {"base": self.base, "fetched_at": time.time(), "roots": {}, **dict(zip(parts, got))}
         cache.write_text(json.dumps(c))
         return c
 
@@ -233,7 +252,9 @@ class Client:
 
     def context(self, req: Request, schema: Schema) -> Context:
         query_ids = sorted({int(v["value"]) for r in schema.form_rules if r.get("active")
-                            for v in _org_query_values(r["item"])})
+                            for n in walk(r["item"])
+                            if n.get("type") == "comp" and n["sourceItem"].get("itemTypeId") == 205
+                            for v in n.get("val_obj", [])})
         return Context(
             event_type_id=req.type_id,
             space_ids=[req.space_id] if req.space_id else [],
@@ -245,17 +266,21 @@ class Client:
     def check(self, req: Request, fresh: bool = False) -> CheckResult:
         """What's still missing before this request can be submitted, in the form's own words."""
         schema = self.schema(req.type_id, fresh=fresh)
-        out = check(req, schema, self.context(req, schema))
-        if req.space_id:
-            room = self.space_info(req.space_id)
+        timed = req.space_id and req.start and req.end and req.end > req.start
+        ctx, room, avail = parallel(
+            lambda: self.context(req, schema),
+            lambda: self.space_info(req.space_id) if req.space_id else None,
+            lambda: self.availability([req.space_id], req.start, req.end) if timed else {})
+        out = check(req, schema, ctx)
+        if room:
             if req.layout_id and room["layouts"] and req.layout_id not in room["layouts"]:
                 out.problems.append(f"Layout {req.layout_id} isn't one of this room's layouts "
                                     f"({room['layouts']}).")
             if req.headcount and room["capacity"] and req.headcount > room["capacity"]:
                 out.warnings.append(f"{req.headcount} people is more than {room['code']} holds "
                                     f"({room['capacity']}).")
-            if req.start and req.end and req.end > req.start:
-                a = self.availability([req.space_id], req.start, req.end).get(req.space_id, {})
+            if timed:
+                a = avail.get(req.space_id, {})
                 if not a.get("can_request"):
                     out.problems.append("You can't request that room at that time.")
                 elif not a.get("free"):
@@ -266,7 +291,8 @@ class Client:
 
     # ---- submit ---------------------------------------------------------
     def _build(self, req: Request, schema: Schema, ctx: Context) -> tuple[dict, Preview]:
-        me, room = self.whoami(), self.space_info(req.space_id)
+        me, room, org_name = parallel(self.whoami, lambda: self.space_info(req.space_id),
+                                      lambda: self.org_name(req.org_id))
         sched_id, sched_name = room["scheduler"] or (None, "")
         result, canon, _ = evaluate(req, schema, ctx)
         active = [q for q in result["questions"] if q in canon]
@@ -277,7 +303,7 @@ class Client:
         tpl = {
             "event_name": req.name, "event_type_id": req.type_id,
             "event_type_name": schema.event_types.get(req.type_id, ""),
-            "organization_id": req.org_id, "organization_name": self.org_name(req.org_id),
+            "organization_id": req.org_id, "organization_name": org_name,
             "description": P.description_html(req.description),
             "expected_count": req.headcount, "space_id": req.space_id,
             "layout_id": req.layout_id or room["layout_id"],
@@ -354,7 +380,7 @@ class Client:
         unknown_fields = [f["item_name"] for f in s.fields
                           if f.get("required") and f.get("visible") and f["item_name"] not in FIELD_KEYS]
         types = sorted({str(q.get("itemTypeId")) for q in s.questions.values()} - QUESTION_TYPES)
-        unsupported = Engine(s.form_rules, s.validation_rules).unsupported_rules()
+        unsupported = s.engine.unsupported_rules()
         return Doctor(
             ok=not (unknown_fields or types or unsupported), session=me,
             unknown_required_fields=unknown_fields, unsupported_rules=unsupported,
@@ -364,13 +390,3 @@ class Client:
                     "form_rules": sum(1 for r in s.form_rules if r.get("active")),
                     "validation_rules": sum(1 for r in s.validation_rules if r.get("active"))})
 
-
-def _org_query_values(node: dict):
-    """Values of 'org is in saved search' (type 205) conditions anywhere in a rule tree."""
-    if node.get("type") == "comp":
-        if node["sourceItem"].get("itemTypeId") == 205:
-            yield from node.get("val_obj", [])
-        return
-    kids = node.get("children")
-    for k in (kids.get("item") or []) if isinstance(kids, dict) else []:
-        yield from _org_query_values(k)

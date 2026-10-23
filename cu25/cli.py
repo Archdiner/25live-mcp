@@ -22,18 +22,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
 
 from pydantic import BaseModel, ValidationError
 
 from .models import OUTPUTS, Error, EventTypes, Orgs, Request, Rooms
-
-
-def _dt(day: str, hhmm: str) -> datetime:
-    try:
-        return datetime.fromisoformat(f"{day}T{hhmm}")
-    except ValueError:
-        raise ValueError(f"expected YYYY-MM-DD HH:MM, got {day!r} {hhmm!r}")
 
 
 def read_request(arg: str) -> Request:
@@ -86,7 +78,7 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
     sub.add_parser("schema").add_argument("name", nargs="?")
     args = ap.parse_args(argv)
 
-    from .client import Client, CU25Error
+    from .client import Client, CU25Error, parse_slot
     try:
         if args.cmd == "guide":
             from .guide import GUIDE
@@ -97,11 +89,13 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
             from .login import login
             return args.cmd, {"logged_in_as": login()}
         req = read_request(args.request) if args.cmd in ("check", "submit") else None
+        if args.cmd == "rooms":
+            parse_slot(args.date, args.start, args.end)
         cl = Client()
         return args.cmd, {
             "whoami": lambda: cl.whoami(),
             "types": lambda: EventTypes(types=cl.event_types()),
-            "rooms": lambda: Rooms(rooms=cl.rooms(_dt(args.date, args.start), _dt(args.date, args.end),
+            "rooms": lambda: Rooms(rooms=cl.rooms(*parse_slot(args.date, args.start, args.end),
                                                   name=args.name, people=args.people)),
             "orgs": lambda: Orgs(orgs=cl.search_orgs(args.name)),
             "check": lambda: cl.check(req),
