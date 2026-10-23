@@ -187,7 +187,8 @@ class Client:
             raise CU25Error("End time must be after start time.")
         found = self.search_spaces(start, end, name=name, min_capacity=people)
         avail = self.availability([r["space_id"] for r in found], start, end)
-        out = [Room(**r, **avail.get(r["space_id"], {"free": False, "can_request": False}),
+        out = [Room(**{k: v for k, v in r.items() if k != "layouts"},
+                    **avail.get(r["space_id"], {"free": False, "can_request": False}),
                     fully_scheduled=not r["code"].endswith("**")) for r in found]
         return sorted(out, key=lambda r: (not r.free, r.capacity or 0))
 

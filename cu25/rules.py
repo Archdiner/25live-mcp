@@ -81,8 +81,9 @@ def unsupported(rule: dict) -> list[str]:
         if n.get("type") == "comp":
             if n["sourceItem"].get("itemTypeId") not in SOURCES:
                 out.append(f"source type {n['sourceItem'].get('itemTypeId')}")
-            if n.get("operator") not in OPERATORS:
-                out.append(f"operator {n.get('operator')!r}")
+            op, t = n.get("operator"), n["sourceItem"].get("itemTypeId")
+            if op not in OPERATORS or (op == "between") != (t == 1001) or (op == "After") != (t == 1003):
+                out.append(f"operator {op!r} on source type {t}")
         elif n.get("type") != "bool" or n.get("operator", "and") not in ("and", "or"):
             out.append(f"node {n.get('type')}/{n.get('operator')}")
     out += [f"action {a['action']}" for a in rule["item"].get("actions", []) if a["action"] not in ACTIONS]
@@ -150,12 +151,6 @@ class Engine:
             except (IndexError, TypeError, ValueError):
                 return False
             return {">=": h >= w, ">": h > w, "<=": h <= w, "<": h < w}[op]
-        if op == "between":
-            try:
-                lo, hi = (float(x) for x in str(want[0]).split(","))
-                return lo <= float(have[0]) <= hi
-            except (IndexError, TypeError, ValueError):
-                return False
         return False
 
     def _node(self, node: dict, answers: dict, ctx: Context) -> bool:

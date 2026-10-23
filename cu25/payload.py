@@ -142,20 +142,16 @@ def as_list(x) -> list:
     return x if isinstance(x, list) else [x]
 
 
+def _space(sp: dict) -> dict:
+    layouts = as_list(sp.get("layout"))
+    default = next((l for l in layouts if l.get("default_layout") == "T"), layouts[0] if layouts else {})
+    return {"space_id": sp["space_id"], "code": sp["space_name"], "name": sp["formal_name"],
+            "capacity": sp.get("max_capacity"), "layout_id": default.get("layout_id"),
+            "layouts": [l["layout_id"] for l in layouts]}
+
+
 def parse_spaces(resp: dict) -> list[dict]:
-    out = []
-    for sp in as_list(resp.get("spaces", {}).get("space")):
-        layouts = as_list(sp.get("layout"))
-        default = next((l for l in layouts if l.get("default_layout") == "T"),
-                       layouts[0] if layouts else {})
-        out.append({
-            "space_id": sp["space_id"],
-            "code": sp["space_name"],
-            "name": sp["formal_name"],
-            "capacity": sp.get("max_capacity"),
-            "layout_id": default.get("layout_id"),
-        })
-    return out
+    return [_space(sp) for sp in as_list(resp.get("spaces", {}).get("space"))]
 
 
 def parse_availability(resp: dict) -> dict[int, dict]:
@@ -178,27 +174,11 @@ def description_html(text: str | None) -> str:
 
 
 def parse_space_detail(resp: dict) -> dict:
-    """Scheduler, layouts and capacity from POST spaces.json?request_method=get."""
-    sp = resp.get("spaces", {}).get("space", {})
-    layouts = [l["layout_id"] for l in as_list(sp.get("layout"))]
-    return {"code": sp.get("space_name"), "name": sp.get("formal_name"),
-            "capacity": sp.get("max_capacity"), "layouts": layouts,
-            "layout_id": parse_default_layout(resp), "scheduler": parse_scheduler(resp)}
-
-
-def parse_scheduler(resp: dict) -> tuple[int, str] | None:
-    sp = resp.get("spaces", {}).get("space", {})
-    for c in as_list(sp.get("contact")):
-        if c.get("role_name") == "Scheduler":
-            return c["contact_id"], c["contact_name"]
-    return None
-
-
-def parse_default_layout(resp: dict) -> int | None:
-    layouts = as_list(resp.get("spaces", {}).get("space", {}).get("layout"))
-    default = next((l for l in layouts if l.get("default_layout") == "T"),
-                   layouts[0] if layouts else {})
-    return default.get("layout_id")
+    """Room, layouts and scheduler from POST spaces.json?request_method=get."""
+    sp = resp["spaces"]["space"]
+    sched = next(((c["contact_id"], c["contact_name"]) for c in as_list(sp.get("contact"))
+                  if c.get("role_name") == "Scheduler"), None)
+    return {**_space(sp), "scheduler": sched}
 
 
 def parse_submit(resp: dict) -> dict:
