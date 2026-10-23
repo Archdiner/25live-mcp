@@ -17,7 +17,8 @@ pytestmark = pytest.mark.skipif(not shutil.which("cu25"), reason="pip install -e
 @pytest.fixture
 def env(home):
     base, calls, stop = serve()
-    yield {**os.environ, "CU25_BASE": base, "CU25_HOME": str(home)}, calls
+    yield {**os.environ, "CU25_BASE": base, "CU25_LIBCAL": base.split("/25live/")[0],
+           "CU25_HOME": str(home)}, calls
     stop()
 
 
@@ -75,6 +76,27 @@ def test_agent_flow_from_nothing_to_submitted(env, tmp_path):
 
     code, st = cu25(env, "status", "561543")
     assert code == 0 and st["state"] == "Tentative"
+
+
+def test_library_flow_needs_no_login(env, tmp_path):
+    env, calls = env
+    env = {**env, "CU25_HOME": str(tmp_path)}  # no 25Live session at all
+    code, out = cu25(env, "libspaces", "2026-10-26", "17:00", "19:00", "--people", "6")
+    assert code == 0 and out["spaces"][0]["free"]
+    space = next(s for s in out["spaces"] if s["name"] == "136 Table A")
+
+    booking = {"space_id": space["space_id"], "start": "2026-10-26T17:00", "end": "2026-10-26T19:00"}
+    code, out = cu25(env, "libbook", json.dumps(booking))
+    assert code == 2 and {m["field"] for m in out["missing"]} == {"first_name", "last_name", "email"}
+
+    booking.update(first_name="Test", last_name="Student", email="netid@cornell.edu")
+    code, prev = cu25(env, "libbook", "-", stdin=json.dumps(booking))
+    assert code == 0 and prev["status"] == "preview"
+    assert not any(p == "/ajax/space/book" for _, p, _, _ in calls)
+    code, done = cu25(env, "libbook", "-", "--confirm", prev["confirm"], stdin=json.dumps(booking))
+    assert code == 0 and done["status"] == "booked" and done["booking_id"] == "cab39b94d155"
+    sent = dict(next(f for _, p, _, f in calls if p == "/ajax/space/book"))
+    assert (sent["fname"], sent["email"]) == ("Test", "netid@cornell.edu")
 
 
 def test_expired_session_tells_the_agent_what_to_do(tmp_path):

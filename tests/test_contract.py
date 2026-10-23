@@ -15,9 +15,10 @@ ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture
-def cli_env(fake, monkeypatch):
+def cli_env(fake, library, monkeypatch):
     c, _ = fake
     monkeypatch.setattr("cu25.client.Client", lambda *a, **k: c)
+    monkeypatch.setattr("cu25.library.Library", lambda *a, **k: library[0])
     return c
 
 
@@ -32,7 +33,13 @@ def commands(req_json):
         "rooms": ["rooms", "2026-10-25", "14:00", "15:00", "--name", "stimson"],
         "check": ["check", req_json], "submit": ["submit", req_json],
         "copy": ["copy", "561543"], "status": ["status", "561543"], "doctor": ["doctor"],
+        "libspaces": ["libspaces", "2026-10-26", "17:00", "19:00", "--name", "catherwood"],
+        "libbook": ["libbook", json.dumps(LIBREQ)],
     }
+
+
+LIBREQ = {"space_id": 110724, "start": "2026-10-26T17:00", "end": "2026-10-26T19:00",
+          "first_name": "Test", "last_name": "Student", "email": "netid@cornell.edu"}
 
 
 def test_every_command_output_matches_its_schema_and_exit_code(cli_env, real_request, capsys):
@@ -74,12 +81,26 @@ def test_bad_input_is_rejected_with_the_offending_field(cli_env, bad, where, cap
 def test_bad_dates_for_rooms_are_input_errors(cli_env, capsys):
     code, out = run(["rooms", "tomorrow", "5pm", "6pm"], capsys)
     assert code == 1 and out["error_type"] == "invalid_input"
+    code, out = run(["libspaces", "2026-10-26", "17:00"], capsys)
+    assert code == 1 and out["error_type"] == "invalid_input"
+
+
+def test_library_booking_preview_confirm_and_not_ready_exit_codes(cli_env, capsys):
+    code, prev = run(["libbook", json.dumps(LIBREQ)], capsys)
+    assert code == 0 and prev["status"] == "preview"
+    code, out = run(["libbook", json.dumps(LIBREQ), "--confirm", prev["confirm"]], capsys)
+    assert code == 0 and out["status"] == "booked"
+    code, out = run(["libbook", json.dumps({**LIBREQ, "email": None})], capsys)
+    assert code == 2 and out["missing"][0]["field"] == "email"
+    code, out = run(["libbook", json.dumps({**LIBREQ, "room": 1})], capsys)
+    assert code == 1 and out["error_type"] == "invalid_input" and "room" in out["error"]
 
 
 def test_schema_command_covers_every_input_and_output(capsys):
     code, out = run(["schema"], capsys)
-    assert code == 0 and set(out) == {"request", *OUTPUTS}
+    assert code == 0 and set(out) == {"request", "librequest", *OUTPUTS}
     assert out["request"]["additionalProperties"] is False
+    assert out["librequest"]["additionalProperties"] is False
     code, out = run(["schema", "submit"], capsys)
     assert "confirm" in out["properties"]
 
@@ -125,7 +146,8 @@ def test_runtime_stays_lean():
     meta = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     assert [d.split(">")[0] for d in meta["dependencies"]] == ["httpx", "pydantic"]
     core = "".join((ROOT / "cu25" / f).read_text() for f in
-                   ("cli.py", "client.py", "models.py", "request.py", "rules.py", "payload.py", "login.py"))
+                   ("cli.py", "client.py", "models.py", "request.py", "rules.py", "payload.py", "login.py",
+                    "library.py", "libcal.py"))
     assert "import mcp" not in core and "from mcp" not in core
 
 

@@ -6,9 +6,11 @@ import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from fake25live import route  # noqa: E402
+import fake25live  # noqa: E402
+from fake25live import form_fields, route  # noqa: E402
 
 from cu25 import client as C  # noqa: E402
+from cu25 import library as LIB  # noqa: E402
 from cu25.models import Request  # noqa: E402
 
 
@@ -35,6 +37,25 @@ def fake(home):
     c = C.Client(home=home)
     c.http = httpx.Client(transport=httpx.MockTransport(handler), headers=c.http.headers)
     return c, calls
+
+
+@pytest.fixture
+def library(home):
+    """A Library wired to the fake LibCal, the day the HAR was taken. Returns (library, calls)."""
+    from datetime import datetime
+    calls = []
+
+    def handler(req: httpx.Request):
+        form = form_fields(req.headers.get("content-type", ""), req.content) if req.content else []
+        calls.append((req.method, req.url.path, form))
+        status, ctype, text = fake25live.libcal_route(req.method, req.url.path, dict(req.url.params), form,
+                                           req.headers.get("referer", ""))
+        return httpx.Response(status, headers={"content-type": ctype}, text=text)
+
+    lib = LIB.Library(home=home)
+    lib.http = httpx.Client(transport=httpx.MockTransport(handler), headers=lib.http.headers)
+    lib.now = lambda: datetime(2026, 10, 23, 2, 5)
+    return lib, calls
 
 
 @pytest.fixture

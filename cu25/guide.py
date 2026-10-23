@@ -2,11 +2,30 @@
 instructions, and mirrored in skills/book-room/SKILL.md (a test keeps them in sync)."""
 
 GUIDE = """\
-# Requesting a Cornell room with cu25
+# Booking a Cornell room with cu25
 
 Every command prints one JSON object. Exit 0 = ok, 1 = error (`error`, `error_type`),
 2 = needs attention (not ready, or a preview that must be confirmed again).
 `cu25 schema` prints the JSON Schema of every input and output.
+
+## First: library space or 25Live?
+
+Two systems, two sets of commands. Work out which one with the user before anything else:
+
+- **Library study space** (`libspaces`, `libbook`): studying or working in a small group in
+  Olin, Uris, Catherwood, Mann or Carpenter Hall. Group study rooms, tables and classrooms,
+  mostly 1-10 people. A few hours at most. Booked at once under the person's own name and
+  @cornell.edu email. No login, no organization, no approval; it can be today.
+- **25Live** (`rooms` ... `submit`): an event for an organization (club meeting, talk, info
+  session, anything with food or guests) in a campus classroom or event space. Needs
+  `cu25 login`, an org, the event form's questions, and 2+ days' notice; it stays Tentative
+  until a scheduler approves.
+
+If the message doesn't settle it, ask one question: "Is this for studying or a small group
+in a library, or an event for an organization?" A library space for an org event, or a
+25Live room to study in, is the wrong tool; say so.
+
+## 25Live
 
 1. **When.** Get the date, start and end (local Ithaca time). Requests for today or tomorrow
    won't be processed in time; the day after tomorrow is fine. Say so before anything else.
@@ -32,4 +51,25 @@ Every command prints one JSON object. Exit 0 = ok, 1 = error (`error`, `error_ty
 
 If `error_type` is `session_expired`, ask the user to run `cu25 login` (a browser opens for
 NetID + Duo). If it is `upstream`, 25Live changed: stop and tell the user.
+
+## Library study space
+
+1. **When and how many.** The date, start, end (Ithaca time) and how many people.
+2. **Where.** `cu25 libspaces YYYY-MM-DD HH:MM HH:MM [--people N] [--name olin]` lists spaces,
+   free ones first, with each space's `free_times` that day. Without the times it shows the
+   day's free times, to help pick a time. Show the free ones (name, library, capacity) and
+   let the user pick. Times start on the space's slot boundaries (often :00/:15/:30/:45).
+3. **Who.** The booking is in the user's own name: ask for their first name, last name and
+   @cornell.edu email unless you already know them. Never book under someone else's name.
+4. **Preview.** Write booking JSON (`cu25 schema librequest`) and run `cu25 libbook
+   booking.json`. Nothing is held or booked. Ask for every item in `missing`; explain every
+   item in `problems` (taken, too long: it names the latest end allowed). Show `preview`
+   and get an explicit yes.
+5. **Book.** `cu25 libbook booking.json --confirm <code>`. This is when the library's own form
+   is read: if it comes back `not_ready` with `missing` items named `answers.<field>`, ask
+   them, put the answers in `answers` under that field, and preview again. Report
+   `booking_id` and `messages`: the library emails a confirmation to that address.
+   Cancelling is done from that email.
+
+If `error_type` is `upstream`, the library's site changed: stop and tell the user.
 """

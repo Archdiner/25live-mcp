@@ -16,16 +16,17 @@ except ImportError:
 
 from .client import Client, CU25Error, parse_slot
 from .guide import GUIDE
-from .models import (CheckResult, Copied, Doctor, EventTypes, Orgs, Request, Rooms, Status,
-                     SubmitResult, Whoami)
+from .library import Library, library_slot
+from .models import (CheckResult, Copied, Doctor, EventTypes, LibraryRequest, LibraryResult,
+                     LibrarySpaces, Orgs, Request, Rooms, Status, SubmitResult, Whoami)
 
 mcp = MCPServer("cu25", instructions=GUIDE)
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 
 
-def _run(fn):
+def _run(fn, make=Client):
     try:
-        return fn(Client())
+        return fn(make())
     except CU25Error as e:
         raise RuntimeError(f"{e.error_type}: {e}") from None
 
@@ -96,6 +97,26 @@ def status(event_id: int) -> Status:
 def doctor() -> Doctor:
     """Is the session alive, and does cu25 understand everything in the live form?"""
     return _run(lambda c: c.doctor())
+
+
+@mcp.tool(annotations=READ)
+def libspaces(date: str, start: str | None = None, end: str | None = None, people: int | None = None,
+              name: str | None = None, limit: int = 50) -> LibrarySpaces:
+    """Library study spaces (no login needed) with their free times on a day (YYYY-MM-DD). With
+    start and end (HH:MM 24h Ithaca time), free ones first. `name` matches library, category or space."""
+    try:
+        slot = library_slot(date, start, end)
+    except ValueError as e:
+        raise RuntimeError(f"invalid_input: {e}") from None
+    return _run(lambda c: c.spaces(*slot, people=people, name=name, limit=limit), Library)
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
+                                      open_world_hint=True))
+def libbook(booking: LibraryRequest, confirm: str | None = None) -> LibraryResult:
+    """Book a library space. Without confirm: a preview and a confirm code, nothing booked. Show
+    the preview, get the user's yes, then call again with that code. Booked at once, no approval."""
+    return _run(lambda c: c.book(booking, confirm=confirm), Library)
 
 
 def main():

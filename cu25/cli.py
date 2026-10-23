@@ -1,4 +1,5 @@
-"""cu25: request Cornell rooms in 25Live. Every command prints one JSON object.
+"""cu25: request Cornell rooms in 25Live, or book library study spaces. Every command prints
+one JSON object.
 
   cu25 login                                        sign in once (NetID + Duo)
   cu25 whoami
@@ -11,10 +12,16 @@
   cu25 copy 561543                                  an old event as a starting request
   cu25 status 561543
   cu25 doctor                                       does cu25 understand the live form?
-  cu25 schema [request|check|submit|...]            JSON Schemas of inputs and outputs
+
+Library study spaces (LibCal, no login, booked at once under your name and email):
+  cu25 libspaces 2026-10-29 [17:00 18:00] [--people 4] [--name olin]
+  cu25 libbook booking.json                         preview + confirm code (books nothing)
+  cu25 libbook booking.json --confirm CODE          book exactly what was previewed
+
+  cu25 schema [request|librequest|check|...]        JSON Schemas of inputs and outputs
   cu25 guide                                        the workflow, for agents
 
-A request is a file path, - for stdin, or inline JSON. Exit 0 = ok, 1 = error,
+A request or booking is a file path, - for stdin, or inline JSON. Exit 0 = ok, 1 = error,
 2 = needs attention (not ready, or a stale preview).
 """
 from __future__ import annotations
@@ -25,10 +32,12 @@ import sys
 
 from pydantic import BaseModel, ValidationError
 
-from .models import OUTPUTS, Error, EventTypes, Orgs, Request
+from .models import OUTPUTS, Error, EventTypes, LibraryRequest, Model, Orgs, Request
+
+INPUTS: dict[str, type[Model]] = {"request": Request, "librequest": LibraryRequest}
 
 
-def read_request(arg: str) -> Request:
+def read_request(arg: str, model: type[Model] = Request) -> Model:
     if arg == "-":
         text = sys.stdin.read()
     elif arg.lstrip().startswith("{"):
@@ -39,11 +48,11 @@ def read_request(arg: str) -> Request:
         except OSError as e:
             raise ValueError(f"request: can't read {arg!r} ({e.strerror}). "
                              "Pass a file path, - for stdin, or inline JSON.")
-    return Request.model_validate_json(text)
+    return model.model_validate_json(text)
 
 
 def schemas(name: str | None) -> dict:
-    allm = {"request": Request, **OUTPUTS}
+    allm = {**INPUTS, **OUTPUTS}
     if name:
         if name not in allm:
             raise ValueError(f"no schema {name!r}; one of {sorted(allm)}")
@@ -55,6 +64,7 @@ def exit_code(cmd: str, out: BaseModel | dict) -> int:
     if isinstance(out, Error): return 1
     if cmd == "check" and not out.ready: return 2
     if cmd == "submit" and out.status in ("not_ready", "changed"): return 2
+    if cmd == "libbook" and out.status in ("not_ready", "changed"): return 2
     if cmd == "doctor" and not out.ok: return 2
     return 0
 
@@ -77,6 +87,14 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
     sub.add_parser("copy").add_argument("event_id", type=int)
     sub.add_parser("status").add_argument("event_id", type=int)
     sub.add_parser("schema").add_argument("name", nargs="?")
+    ls = sub.add_parser("libspaces")
+    ls.add_argument("date")
+    for a in ("start", "end"):
+        ls.add_argument(a, nargs="?")
+    ls.add_argument("--people", type=int)
+    ls.add_argument("--name", help="library, category or space, e.g. 'olin' or 'mann'")
+    ls.add_argument("--limit", type=int, default=50, help="spaces to show, free first (0 = all)")
+    b = sub.add_parser("libbook"); b.add_argument("booking"); b.add_argument("--confirm")
     args = ap.parse_args(argv)
 
     from .client import Client, CU25Error, parse_slot
@@ -89,6 +107,14 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
         if args.cmd == "login":
             from .login import login
             return args.cmd, {"logged_in_as": login()}
+        if args.cmd in ("libspaces", "libbook"):
+            from .library import Library, library_slot
+            if args.cmd == "libspaces":
+                slot = library_slot(args.date, args.start, args.end)
+                return args.cmd, Library().spaces(*slot, people=args.people, name=args.name,
+                                                  limit=args.limit)
+            return args.cmd, Library().book(read_request(args.booking, LibraryRequest),
+                                            confirm=args.confirm)
         req = read_request(args.request) if args.cmd in ("check", "submit") else None
         if args.cmd == "rooms":
             parse_slot(args.date, args.start, args.end)

@@ -1,15 +1,18 @@
-"""A fake 25Live that answers with responses captured from the real one (HAR, Oct 2026).
+"""A fake 25Live and a fake library LibCal, answering with responses captured from
+the real ones (HARs, Oct 2026).
 
-`route` is shared by the in-process mock transport (unit tests) and a real HTTP
-server (`serve`, e2e tests that run the installed cu25 / cu25-mcp binaries).
+`route` and `libcal_route` are shared by the in-process mock transports (unit tests)
+and a real HTTP server (`serve`, e2e tests that run the installed cu25 / cu25-mcp
+binaries). On that server, paths under /25live/ are 25Live and the rest are LibCal.
 """
 from __future__ import annotations
 
+import email.parser
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 FX = Path(__file__).parent / "fixtures"
 
@@ -54,11 +57,63 @@ def route(method: str, path: str, p: dict, body) -> dict | None:
     return None
 
 
+def form_fields(content_type: str, body: bytes) -> list[tuple[str, str]]:
+    """A LibCal POST body (urlencoded or multipart) as ordered (name, value) pairs."""
+    if content_type.startswith("multipart/"):
+        msg = email.parser.BytesParser().parsebytes(
+            f"content-type: {content_type}\r\n\r\n".encode() + body)
+        return [(m.get_param("name", header="content-disposition"), m.get_payload(decode=True).decode())
+                for m in msg.get_payload()]
+    return parse_qsl(body.decode(), keep_blank_values=True)
+
+
+def libcal_route(method: str, path: str, q: dict, form: list, referer: str) -> tuple[int, str, str]:
+    """(status, content type, body) as LibCal answers."""
+    if method == "POST" and "/space" not in referer:
+        return 403, "text/plain", "Invalid Referrer."
+    html = lambda name: (200, "text/html", (FX / name).read_text())  # noqa: E731
+    js = lambda out: (200, "application/json", json.dumps(out))  # noqa: E731
+    f = dict(form)
+    if path == "/spaces":
+        if q.get("gid"):
+            return html(f"lib_group_{q['gid']}.html")
+        return html(f"lib_location_{q['lid']}.html" if "lid" in q else "lib_spaces.html")
+    if path == "/spaces/availability/grid":
+        return js(load(f"lib_grid_{f['gid']}.json"))
+    if path == "/spaces/availability/booking/add":
+        out = load("lib_add.json")
+        if "update[end]" in f:  # picking another end time: not captured yet, shaped like the add
+            b = out["bookings"][0]
+            b["optionSelected"] = b["options"].index(f["update[end]"])
+            b["end"], b["checksum"] = f["update[end]"], f["update[checksum]"]
+        return js(out)
+    if path == "/ajax/space/times":
+        return js(load("lib_times.json"))
+    if path == "/ajax/space/book":
+        return js(load("lib_book.json"))
+    return 404, "text/plain", "not found"
+
+
 class _Handler(BaseHTTPRequestHandler):
     calls: list
 
+    def _libcal(self, u):
+        n = int(self.headers.get("content-length") or 0)
+        form = form_fields(self.headers.get("content-type", ""), self.rfile.read(n)) if n else []
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        self.calls.append((self.command, u.path, q, form))
+        status, ctype, text = libcal_route(self.command, u.path, q, form, self.headers.get("referer", ""))
+        data = text.encode()
+        self.send_response(status)
+        self.send_header("content-type", ctype)
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _go(self):
         u = urlparse(self.path)
+        if not u.path.startswith(("/25live/", "/pro/")):
+            return self._libcal(u)
         if u.path.startswith("/pro/"):  # the 25Live app page: signing in sets the session cookie
             self.send_response(200)
             self.send_header("set-cookie", "JSESSIONID=signed-in; Path=/")
@@ -88,7 +143,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve():
-    """Start the fake on a free port. Returns (base_url, calls, stop)."""
+    """Start the fake on a free port. Returns (25Live base url, calls, stop); LibCal is at the root."""
     calls: list = []
     handler = type("H", (_Handler,), {"calls": calls})
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
