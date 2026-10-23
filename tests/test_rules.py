@@ -91,5 +91,8 @@ def test_unknown_rule_vocabulary_is_named():
     rule = {"rule_name": "new", "active": 1, "item": {"type": "bool", "operator": "and",
             "actions": [{"action": "teleport"}], "children": {"item": [
                 {"type": "comp", "sourceItem": {"itemTypeId": 777}, "operator": "~", "val_obj": []}]}}}
-    assert unsupported(rule) == ["source type 777", "operator '~'", "action teleport"]
-    assert Engine([rule]).unsupported_rules() == ["new: source type 777, operator '~', action teleport"]
+    assert unsupported(rule) == ["source type 777", "operator '~' on source type 777", "action teleport"]
+    assert Engine([rule]).unsupported_rules() == [
+        "new: source type 777, operator '~' on source type 777, action teleport"]
+    rule["item"]["children"]["item"][0].update(sourceItem={"itemTypeId": 1410}, operator="between")
+    assert unsupported(rule)[0] == "operator 'between' on source type 1410"

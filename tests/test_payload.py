@@ -18,6 +18,18 @@ def test_availability_body_matches_the_browser():
     assert built["space_availability"] == {k: real[k] for k in ("requirements", "dates")}
 
 
+def test_availability_reads_one_conflict_or_several():
+    def dates(conflict):
+        return {"spaces": {"space": [{"space_id": 1, "has_conflicts": "T",
+                                      "dates": {"can_schedule": "T", "conflict": conflict}}]}}
+
+    one = dates({"conflict_end": "2026-10-29T18:30:00-04:00"})
+    many = dates([{"conflict_end": "2026-10-29T18:30:00-04:00"},
+                  {"conflict_end": "2026-10-29T20:00:00-04:00"}])
+    assert P.parse_availability(one)[1]["conflict_until"] == "2026-10-29T18:30:00-04:00"
+    assert P.parse_availability(many)[1]["conflict_until"] == "2026-10-29T20:00:00-04:00"
+
+
 def test_description_is_escaped_into_paragraphs():
     assert P.description_html("") == ""
     assert P.description_html("Pizza <3 & games\nline two\n\nSecond") == \

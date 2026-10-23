@@ -56,9 +56,14 @@ def orgs(name: str) -> Orgs:
 
 
 @mcp.tool(annotations=READ)
-def rooms(date: str, start: str, end: str, people: int | None = None, name: str | None = None) -> Rooms:
-    """Rooms the user may request at a time (YYYY-MM-DD, HH:MM 24h Ithaca time), free first."""
-    return _run(lambda c: Rooms(rooms=c.rooms(*parse_slot(date, start, end), name=name, people=people)))
+def rooms(date: str, start: str, end: str, people: int | None = None, name: str | None = None,
+          limit: int = 50) -> Rooms:
+    """Rooms the user may request at a time (YYYY-MM-DD, HH:MM 24h Ithaca time), free first.
+
+    `total` counts every room free at that time; `rooms` shows at most `limit` (0 = all).
+    """
+    return _run(lambda c: c.rooms(*parse_slot(date, start, end), name=name, people=people,
+                                  limit=limit))
 
 
 @mcp.tool(annotations=READ)

@@ -142,31 +142,28 @@ def as_list(x) -> list:
     return x if isinstance(x, list) else [x]
 
 
+def _space(sp: dict) -> dict:
+    layouts = as_list(sp.get("layout"))
+    default = next((l for l in layouts if l.get("default_layout") == "T"), layouts[0] if layouts else {})
+    return {"space_id": sp["space_id"], "code": sp["space_name"], "name": sp["formal_name"],
+            "capacity": sp.get("max_capacity"), "layout_id": default.get("layout_id"),
+            "layouts": [l["layout_id"] for l in layouts]}
+
+
 def parse_spaces(resp: dict) -> list[dict]:
-    out = []
-    for sp in as_list(resp.get("spaces", {}).get("space")):
-        layouts = as_list(sp.get("layout"))
-        default = next((l for l in layouts if l.get("default_layout") == "T"),
-                       layouts[0] if layouts else {})
-        out.append({
-            "space_id": sp["space_id"],
-            "code": sp["space_name"],
-            "name": sp["formal_name"],
-            "capacity": sp.get("max_capacity"),
-            "layout_id": default.get("layout_id"),
-        })
-    return out
+    return [_space(sp) for sp in as_list(resp.get("spaces", {}).get("space"))]
 
 
 def parse_availability(resp: dict) -> dict[int, dict]:
     out = {}
     for sp in as_list(resp.get("spaces", {}).get("space")):
         d = sp.get("dates") or {}
-        conflict = d.get("conflict") or {}
+        conflict = as_list(d.get("conflict"))  # one conflict is a dict, several are a list
+        ends = [c["conflict_end"] for c in conflict if c.get("conflict_end")]
         out[sp["space_id"]] = {
             "free": sp.get("has_conflicts") == "F" and d.get("can_schedule") == "T",
             "can_request": d.get("can_schedule") == "T",
-            "conflict_until": conflict.get("conflict_end"),
+            "conflict_until": max(ends) if ends else None,
         }
     return out
 
@@ -178,27 +175,11 @@ def description_html(text: str | None) -> str:
 
 
 def parse_space_detail(resp: dict) -> dict:
-    """Scheduler, layouts and capacity from POST spaces.json?request_method=get."""
-    sp = resp.get("spaces", {}).get("space", {})
-    layouts = [l["layout_id"] for l in as_list(sp.get("layout"))]
-    return {"code": sp.get("space_name"), "name": sp.get("formal_name"),
-            "capacity": sp.get("max_capacity"), "layouts": layouts,
-            "layout_id": parse_default_layout(resp), "scheduler": parse_scheduler(resp)}
-
-
-def parse_scheduler(resp: dict) -> tuple[int, str] | None:
-    sp = resp.get("spaces", {}).get("space", {})
-    for c in as_list(sp.get("contact")):
-        if c.get("role_name") == "Scheduler":
-            return c["contact_id"], c["contact_name"]
-    return None
-
-
-def parse_default_layout(resp: dict) -> int | None:
-    layouts = as_list(resp.get("spaces", {}).get("space", {}).get("layout"))
-    default = next((l for l in layouts if l.get("default_layout") == "T"),
-                   layouts[0] if layouts else {})
-    return default.get("layout_id")
+    """Room, layouts and scheduler from POST spaces.json?request_method=get."""
+    sp = resp["spaces"]["space"]
+    sched = next(((c["contact_id"], c["contact_name"]) for c in as_list(sp.get("contact"))
+                  if c.get("role_name") == "Scheduler"), None)
+    return {**_space(sp), "scheduler": sched}
 
 
 def parse_submit(resp: dict) -> dict:

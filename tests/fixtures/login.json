@@ -1,18 +1,1 @@
-{
- "login_response": {
-  "login": {
-   "message": "Already logged in",
-   "success": "T",
-   "user_type": "r25",
-   "user_id": "25446",
-   "username": "netid",
-   "contact_name": "Student, Test",
-   "security_group_id": "182",
-   "security_group_name": "Student Users - General (182)",
-   "login_url": "https://25live.collegenet.com/25live/data/cornell/run/login.shibboleth",
-   "logout_url": ""
-  },
-  "pubdate": "2026-10-23T00:14:12-04:00",
-  "engine": "sws"
- }
-}
+{"login_response":{"login":{"message":"Already logged in","success":"T","user_type":"r25","user_id":"25446","username":"netid","contact_name":"Student, Test","security_group_id":"182","security_group_name":"Student Users - General (182)","login_url":"https://25live.collegenet.com/25live/data/cornell/run/login.shibboleth","logout_url":""},"pubdate":"2026-10-23T00:14:12-04:00","engine":"sws"}}
