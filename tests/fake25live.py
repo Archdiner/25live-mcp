@@ -73,7 +73,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.calls.append((self.command, path, params, body))
         out = route(self.command, path, params, body)
         if path == "login.json" and "JSESSIONID=" not in (self.headers.get("cookie") or ""):
-            out = {"login_response": {"login": {"success": "F"}}}  # like 25Live: no cookie, no user
+            out = load("login_logged_out.json")  # real 25Live: no cookie, no user
         data = json.dumps(out).encode() if out is not None else b"not found"
         self.send_response(200 if out is not None else 404)
         self.send_header("content-type", "application/json" if out is not None else "text/plain")

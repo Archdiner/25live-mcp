@@ -25,7 +25,7 @@ import sys
 
 from pydantic import BaseModel, ValidationError
 
-from .models import OUTPUTS, Error, EventTypes, Orgs, Request, Rooms
+from .models import OUTPUTS, Error, EventTypes, Orgs, Request
 
 
 def read_request(arg: str) -> Request:
@@ -70,6 +70,7 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
         r.add_argument(a)
     r.add_argument("--people", type=int)
     r.add_argument("--name", help="building or room, e.g. 'stimson' or 'MVR1151'")
+    r.add_argument("--limit", type=int, default=50, help="rooms to show, free first (0 = all)")
     sub.add_parser("orgs").add_argument("name")
     sub.add_parser("check").add_argument("request")
     s = sub.add_parser("submit"); s.add_argument("request"); s.add_argument("--confirm")
@@ -95,8 +96,8 @@ def run(argv=None) -> tuple[str, BaseModel | dict | str]:
         return args.cmd, {
             "whoami": lambda: cl.whoami(),
             "types": lambda: EventTypes(types=cl.event_types()),
-            "rooms": lambda: Rooms(rooms=cl.rooms(*parse_slot(args.date, args.start, args.end),
-                                                  name=args.name, people=args.people)),
+            "rooms": lambda: cl.rooms(*parse_slot(args.date, args.start, args.end),
+                                      name=args.name, people=args.people, limit=args.limit),
             "orgs": lambda: Orgs(orgs=cl.search_orgs(args.name)),
             "check": lambda: cl.check(req),
             "submit": lambda: cl.submit(req, confirm=args.confirm),

@@ -122,6 +122,7 @@ class Room(Model):
 
 class Rooms(Model):
     rooms: list[Room]
+    total: int  # rooms at that time, before `limit`
 
 
 class Org(Model):

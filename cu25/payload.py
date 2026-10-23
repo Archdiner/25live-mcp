@@ -158,11 +158,12 @@ def parse_availability(resp: dict) -> dict[int, dict]:
     out = {}
     for sp in as_list(resp.get("spaces", {}).get("space")):
         d = sp.get("dates") or {}
-        conflict = d.get("conflict") or {}
+        conflict = as_list(d.get("conflict"))  # one conflict is a dict, several are a list
+        ends = [c["conflict_end"] for c in conflict if c.get("conflict_end")]
         out[sp["space_id"]] = {
             "free": sp.get("has_conflicts") == "F" and d.get("can_schedule") == "T",
             "can_request": d.get("can_schedule") == "T",
-            "conflict_until": conflict.get("conflict_end"),
+            "conflict_until": max(ends) if ends else None,
         }
     return out
 
