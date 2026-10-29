@@ -87,12 +87,16 @@ class Client:
             "referer": "https://25live.collegenet.com/pro/cornell",
         })
         self._memo: dict = {}
+        self._checked_session = False
         self._record = Path(os.environ["CU25_RECORD"]) if os.environ.get("CU25_RECORD") else None
         self._recorded = itertools.count(len(list(self._record.glob("*.json"))) if self._record and
                                          self._record.exists() else 0)
 
     # ---- plumbing -------------------------------------------------------
     def _call(self, method: str, path: str, query: str = "", body: dict | None = None) -> dict:
+        if not self._checked_session and path != "login.json":
+            self.whoami()  # a signed-out server answers 200 with empty results, so ask first
+            self._checked_session = True
         url = f"{self.base}/{path}?{query + '&' if query else ''}caller=pro"
         r = self.http.request(method, url, content=json.dumps(body) if body is not None else None)
         if self._record:
@@ -214,10 +218,6 @@ class Client:
     def _form_definition(self, fresh: bool) -> dict:
         """The raw form definition, cached on disk for an hour (fresh=True refetches)."""
         cache = self.home / "form-cache.json"
-        if not fresh and cache.exists():
-            c = json.loads(cache.read_text())
-            if c.get("base") == self.base and time.time() - c.get("fetched_at", 0) < FORM_CACHE_SECONDS:
-                return c
         parts = {"config": ("wizard/config.json", "mode=create"),
                  "security": ("usergroup/wizardsecurity.json", ""),
                  "rules": ("rule/trees.json", "category_id=form"),
@@ -225,8 +225,17 @@ class Client:
                  "questions": ("search-criteria/customattributes.json", "itemTypeId=1&all_types=F"),
                  "options": ("custom/attribute/options.json", ""),
                  "types": ("search-criteria/event/types.json", "active=T&all_types=F&form_config=T")}
+        if not fresh and cache.exists():
+            c = json.loads(cache.read_text())
+            if (c.get("base") == self.base and time.time() - c.get("fetched_at", 0) < FORM_CACHE_SECONDS
+                    and all(c.get(k) for k in parts)):  # ignore a cache written from an empty answer
+                return c
         got = parallel(*[lambda p=p, q=q: self._call("GET", p, q) for p, q in parts.values()])
         c = {"base": self.base, "fetched_at": time.time(), "roots": {}, **dict(zip(parts, got))}
+        empty = [k for k in parts if not c[k]]
+        if empty:  # a half-answer used to get cached for an hour and block every check
+            raise UpstreamChanged(f"25Live returned an empty form definition for: {', '.join(empty)}. "
+                                  "Not cached, so just try again.")
         cache.write_text(json.dumps(c))
         return c
 

@@ -1,5 +1,7 @@
 """The full flow against the fake 25Live, through the same Client the CLI and MCP use."""
 from datetime import datetime
+import json
+import time
 
 import httpx
 import pytest
@@ -8,6 +10,28 @@ from fake25live import load
 
 from cu25 import client as C
 from cu25.models import MissingField, MissingQuestion, Request
+
+
+def form_router(**overrides):
+    """Serve the captured form, letting a test replace one part (e.g. config={})."""
+    files = {"login.json": "login.json", "wizard/config.json": "form_config.json",
+             "usergroup/wizardsecurity.json": "wizard_security.json",
+             "rule/trees.json": "rules_form.json",
+             "search-criteria/customattributes.json": "attribute_defs.json",
+             "custom/attribute/options.json": "attribute_options.json",
+             "search-criteria/event/types.json": "event_types.json"}
+
+    def handle(req):
+        path = req.url.path.split("/run/", 1)[-1]
+        if path == "rule/trees.json" and "formValidation" in str(req.url):
+            return httpx.Response(200, json=load("rules_validation.json"))
+        key = path.split("/")[-1]
+        for name, body in overrides.items():
+            if name in path:
+                return httpx.Response(200, json=body)
+        return httpx.Response(200, json=load(files[path] if path in files else f"{key}.json"))
+
+    return handle
 
 
 def normalize(body):
@@ -187,6 +211,8 @@ def test_room_search_reads_past_the_first_page(home):
     pages = []
 
     def handle(req):
+        if req.url.path.endswith("login.json"):
+            return httpx.Response(200, json=load("login.json"))
         page, size = int(req.url.params["page"]), int(req.url.params["page_size"])
         pages.append(page)
         return httpx.Response(200, json={"spaces": {"space": [
@@ -213,7 +239,9 @@ def test_form_definition_is_fetched_once_then_cached(fake, home, real_request):
 
 def test_unexpected_25live_shape_is_an_upstream_error(home):
     c = C.Client(home=home)
-    c.http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"odd": 1})))
+    c.http = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json=load("login.json") if r.url.path.endswith("login.json")
+                                 else {"odd": 1})))
     with pytest.raises(C.UpstreamChanged, match="unexpected shape"):
         c.status(1)
 
@@ -224,6 +252,35 @@ def test_expired_session_is_clear(home):
         lambda r: httpx.Response(302, headers={"location": "https://shibidp.cit.cornell.edu"})))
     with pytest.raises(C.SessionExpired, match="cu25 login"):
         c.whoami()
+
+
+def test_signed_out_server_is_expired_not_an_empty_room_list(home):
+    """Signed out, 25Live answers 200 with zero results, so rooms would say 'nothing free'."""
+    def handle(req):
+        name = req.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, json=load("login_logged_out.json" if name == "login.json"
+                                            else "spaces_logged_out.json"))
+
+    c = C.Client(home=home)
+    c.http = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(C.SessionExpired, match="cu25 login"):
+        c.rooms(datetime(2026, 10, 30, 16, 30), datetime(2026, 10, 30, 17, 30))
+
+
+def test_an_empty_form_part_is_not_cached(home):
+    c = C.Client(home=home)
+    c.http = httpx.Client(transport=httpx.MockTransport(form_router(config={})))
+    with pytest.raises(C.UpstreamChanged, match="empty form definition"):
+        c.schema()
+    assert not (home / "form-cache.json").exists()
+
+
+def test_a_form_cache_built_from_an_empty_answer_is_ignored(home):
+    (home / "form-cache.json").write_text(json.dumps(
+        {"base": C.BASE, "fetched_at": time.time(), "roots": {}, "config": {}}))
+    c = C.Client(home=home)
+    c.http = httpx.Client(transport=httpx.MockTransport(form_router()))
+    assert len(c.schema().fields) == 11  # refetched instead of raising KeyError('config')
 
 
 def test_signed_out_login_json_is_expired_not_a_crash(home):
